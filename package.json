@@ -1,0 +1,30 @@
+{
+  "name": "mwdocast",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently -n next,api -c blue,green \"npm:next-dev\" \"npm:api-dev\"",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint",
+    "next-dev": "next dev",
+    "api-dev": ".venv/bin/python -m uvicorn api.index:app --reload --port 8000",
+    "test:api": ".venv/bin/python -m pytest -q"
+  },
+  "dependencies": {
+    "next": "16.3.6",
+    "react": "19.2.8",
+    "react-dom": "19.2.8"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "concurrently": "^10.0.5",
+    "eslint": "^9",
+    "eslint-config-next": "16.3.6",
+    "tailwindcss": "^4",
+    "typescript": "^5"
+  }
+}
