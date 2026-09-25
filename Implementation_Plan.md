@@ -95,8 +95,9 @@ llm_requests(id, message_id, prompt_tokens, completion_tokens, latency_ms, model
 document_shares(document_id, target_workspace_id)            -- stretch: opt-in sharing
 ```
 
-RLS is enabled on every table as a second line of defense (policies based on `workspace_members`).
-Python connects with a server-side role but also enforces membership itself (see §5).
+RLS is enabled on every table with **no policies**, and `anon`/`authenticated` have their grants revoked,
+so the Supabase REST API denies everything. The browser never touches tables. Only the Python API does
+(as a privileged role), and it enforces membership itself (see §5).
 
 ---
 

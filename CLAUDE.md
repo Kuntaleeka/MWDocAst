@@ -27,7 +27,9 @@ The full design lives in `Implementation_Plan.md`. Read it before starting a pha
 
 ## Commands
 - `npm run dev`: Next.js on :3000 and FastAPI on :8000
-- `npm run test:api`: pytest
+- `npm run test:api`: pytest (DB tests skip if DATABASE_URL is unreachable)
+- `npm run db:migrate`: apply `supabase/migrations/*.sql` in order (tracked in `schema_migrations`)
+- New schema goes in a new numbered migration file. Never edit an applied one.
 - `npm run lint`
 
 ## Working style

@@ -18,11 +18,13 @@ Prerequisites: Node 20+, [uv](https://docs.astral.sh/uv/) (or Python 3.12).
 npm install
 uv venv --python 3.12 .venv
 uv pip install --python .venv/bin/python -r requirements-dev.txt
-cp .env.example .env.local        # fill in values; see "Getting API keys" below
+cp .env.example .env.local        # fill in values (URL-encode special chars in the DB password)
+npm run db:migrate                # create tables in Supabase
 npm run dev                       # Next.js :3000 + FastAPI :8000
 ```
 
 Open http://localhost:3000 and check http://localhost:3000/api/py/health, which should return `{"status":"ok"}`.
+Sign up at /login, create a workspace, and switch between workspaces from the dashboard header.
 
 Tests: `npm run test:api`
 

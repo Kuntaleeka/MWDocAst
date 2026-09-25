@@ -1,0 +1,35 @@
+import { createClient } from "@/lib/supabase/client";
+
+export class ApiError extends Error {
+  constructor(
+    public status: number,
+    message: string,
+  ) {
+    super(message);
+  }
+}
+
+/** Calls the Python API with the user's Supabase access token. */
+export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const {
+    data: { session },
+  } = await createClient().auth.getSession();
+  if (!session) throw new ApiError(401, "Not signed in");
+
+  const res = await fetch(`/api/py${path}`, {
+    ...init,
+    headers: {
+      "Content-Type": "application/json",
+      ...init.headers,
+      Authorization: `Bearer ${session.access_token}`,
+    },
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    const detail = typeof body.detail === "string" ? body.detail : res.statusText;
+    throw new ApiError(res.status, detail);
+  }
+  return res.json() as Promise<T>;
+}
+
+export type Workspace = { id: string; name: string; role: string };

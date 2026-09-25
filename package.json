@@ -9,9 +9,12 @@
     "lint": "eslint",
     "next-dev": "next dev",
     "api-dev": ".venv/bin/python -m uvicorn api.index:app --reload --port 8000",
-    "test:api": ".venv/bin/python -m pytest -q"
+    "test:api": ".venv/bin/python -m pytest -q",
+    "db:migrate": ".venv/bin/python scripts/migrate.py"
   },
   "dependencies": {
+    "@supabase/ssr": "^0.12.7",
+    "@supabase/supabase-js": "^2.117.1",
     "next": "16.3.6",
     "react": "19.2.8",
     "react-dom": "19.2.8"
