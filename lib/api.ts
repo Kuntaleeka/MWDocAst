@@ -88,3 +88,56 @@ export type ToolCall = {
   latency_ms: number;
   created_at: string;
 };
+
+export type StreamEvent =
+  | { event: "meta"; data: { conversation_id: string; user_message: Message; assistant_message_id: string } }
+  | { event: "status"; data: { stage: "searching" | "writing" | "tool"; name?: string } }
+  | { event: "token"; data: { text: string } }
+  | { event: "tool"; data: { name: string; status: "ok" | "rejected" | "error"; error: string | null } }
+  | { event: "done"; data: { message: Message } };
+
+/** POSTs to a Server-Sent Events endpoint and calls onEvent for each event as it arrives. */
+export async function apiStream(
+  path: string,
+  body: unknown,
+  onEvent: (e: StreamEvent) => void,
+): Promise<void> {
+  const {
+    data: { session },
+  } = await createClient().auth.getSession();
+  if (!session) throw new ApiError(401, "Not signed in");
+
+  const res = await fetch(`/api/py${path}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "text/event-stream",
+      Authorization: `Bearer ${session.access_token}`,
+    },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok || !res.body) {
+    const err = await res.json().catch(() => ({}));
+    throw new ApiError(res.status, typeof err.detail === "string" ? err.detail : res.statusText);
+  }
+
+  const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
+  let buffer = "";
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += value;
+    let sep: number;
+    while ((sep = buffer.indexOf("\n\n")) !== -1) {
+      const raw = buffer.slice(0, sep);
+      buffer = buffer.slice(sep + 2);
+      let event = "message";
+      let data = "";
+      for (const line of raw.split("\n")) {
+        if (line.startsWith("event: ")) event = line.slice(7);
+        else if (line.startsWith("data: ")) data += line.slice(6);
+      }
+      if (data) onEvent({ event, data: JSON.parse(data) } as StreamEvent);
+    }
+  }
+}

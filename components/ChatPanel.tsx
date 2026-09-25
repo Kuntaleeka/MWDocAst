@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { apiFetch, type Citation, type Conversation, type Message } from "@/lib/api";
+import { apiFetch, apiStream, type Conversation, type Message } from "@/lib/api";
+import { RichText } from "./RichText";
 
 const TOOL_STYLE = {
   ok: "bg-green-600/15 text-green-700 dark:text-green-400",
@@ -9,13 +10,20 @@ const TOOL_STYLE = {
   error: "bg-red-600/15 text-red-700 dark:text-red-400",
 } as const;
 
-type ChatResponse = { conversation_id: string; user_message: Message; assistant_message: Message };
+const STAGE_LABEL = {
+  searching: "Searching this workspace's documents…",
+  writing: "Writing…",
+  tool: "Running a tool…",
+} as const;
+
+// Local view of a message while it streams in.
+type LiveMessage = Message & { stage?: keyof typeof STAGE_LABEL };
 
 export function ChatPanel({ workspaceId }: { workspaceId: string }) {
   const base = `/workspaces/${workspaceId}`;
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
-  const [messages, setMessages] = useState<Message[]>([]);
+  const [messages, setMessages] = useState<LiveMessage[]>([]);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -49,38 +57,77 @@ export function ChatPanel({ workspaceId }: { workspaceId: string }) {
     setError(null);
   }
 
+  function patch(id: string, update: (m: LiveMessage) => LiveMessage) {
+    setMessages((ms) => ms.map((m) => (m.id === id ? update(m) : m)));
+  }
+
   async function send(e: React.FormEvent) {
     e.preventDefault();
     const text = draft.trim();
     if (!text || sending) return;
     setSending(true);
     setError(null);
-    const now = new Date().toISOString();
-    const optimistic: Message[] = [
-      { id: "tmp-user", role: "user", content: text, status: "done", error: null, citations: [], created_at: now },
-      { id: "tmp-assistant", role: "assistant", content: "", status: "pending", error: null, citations: [], created_at: now },
-    ];
-    setMessages((m) => [...m, ...optimistic]);
     setDraft("");
+    const now = new Date().toISOString();
+    const blank = { error: null, citations: [], tools: [], created_at: now };
+    setMessages((m) => [
+      ...m,
+      { ...blank, id: "tmp-user", role: "user", content: text, status: "done" },
+      { ...blank, id: "tmp-assistant", role: "assistant", content: "", status: "pending", stage: "searching" },
+    ]);
+
+    let assistantId = "tmp-assistant";
+    let conversationId = activeId;
+    let saved = false; // has the server stored the question?
+    let finished = false;
     try {
-      const res = await apiFetch<ChatResponse>(`${base}/chat`, {
-        method: "POST",
-        body: JSON.stringify({ message: text, conversation_id: activeId }),
+      await apiStream(`${base}/chat/stream`, { message: text, conversation_id: activeId }, (ev) => {
+        switch (ev.event) {
+          case "meta":
+            saved = true;
+            conversationId = ev.data.conversation_id;
+            setMessages((ms) =>
+              ms.map((m) =>
+                m.id === "tmp-user"
+                  ? ev.data.user_message
+                  : m.id === "tmp-assistant"
+                    ? { ...m, id: ev.data.assistant_message_id }
+                    : m,
+              ),
+            );
+            assistantId = ev.data.assistant_message_id;
+            if (conversationId !== activeId) {
+              setActiveId(conversationId);
+              loadConversations();
+            }
+            break;
+          case "status":
+            patch(assistantId, (m) => ({ ...m, stage: ev.data.stage }));
+            break;
+          case "token":
+            patch(assistantId, (m) => ({ ...m, content: m.content + ev.data.text }));
+            break;
+          case "tool":
+            patch(assistantId, (m) => ({ ...m, tools: [...(m.tools ?? []), ev.data] }));
+            break;
+          case "done":
+            // The saved message replaces the provisional streamed text (citations validated).
+            finished = true;
+            patch(assistantId, () => ev.data.message);
+            break;
+        }
       });
-      setMessages((m) => [
-        ...m.filter((x) => !x.id.startsWith("tmp-")),
-        res.user_message,
-        res.assistant_message,
-      ]);
-      if (res.conversation_id !== activeId) {
-        setActiveId(res.conversation_id);
-        loadConversations();
-      }
+      if (!finished) throw new Error("The connection closed before the answer finished.");
     } catch (err) {
-      // The request never completed: put the question back so nothing is lost.
-      setMessages((m) => m.filter((x) => !x.id.startsWith("tmp-")));
-      setDraft(text);
-      setError(err instanceof Error ? err.message : "Could not send the message.");
+      if (saved && conversationId) {
+        // The question is stored server-side; show whatever state the server has.
+        await openConversation(conversationId);
+      } else {
+        // The request never reached the server: put the question back so nothing is lost.
+        setMessages((m) => m.filter((x) => !x.id.startsWith("tmp-")));
+        setDraft(text);
+        setError(err instanceof Error ? err.message : "Could not send the message.");
+      }
     } finally {
       setSending(false);
     }
@@ -165,7 +212,7 @@ export function ChatPanel({ workspaceId }: { workspaceId: string }) {
   );
 }
 
-function MessageBubble({ message: m, onRetry }: { message: Message; onRetry: () => void }) {
+function MessageBubble({ message: m, onRetry }: { message: LiveMessage; onRetry: () => void }) {
   if (m.role === "user") {
     return (
       <div className="ml-auto max-w-[85%] whitespace-pre-wrap rounded-lg bg-foreground px-3 py-2 text-sm text-background">
@@ -173,8 +220,13 @@ function MessageBubble({ message: m, onRetry }: { message: Message; onRetry: () 
       </div>
     );
   }
-  if (m.status === "pending") {
-    return <div className="text-sm opacity-60">Searching documents and writing an answer…</div>;
+  if (m.status === "pending" && !m.content) {
+    return (
+      <div className="flex flex-col gap-2">
+        <ToolBadges tools={m.tools} />
+        <div className="animate-pulse text-sm opacity-60">{STAGE_LABEL[m.stage ?? "writing"]}</div>
+      </div>
+    );
   }
   if (m.status === "failed") {
     return (
@@ -188,21 +240,10 @@ function MessageBubble({ message: m, onRetry }: { message: Message; onRetry: () 
   }
   return (
     <div className="flex max-w-[85%] flex-col gap-2">
-      {m.tools && m.tools.length > 0 && (
-        <ul className="flex flex-wrap gap-1">
-          {m.tools.map((t, i) => (
-            <li
-              key={i}
-              title={t.error ?? undefined}
-              className={`rounded px-1.5 py-0.5 font-mono text-[0.7rem] ${TOOL_STYLE[t.status]}`}
-            >
-              {t.status === "ok" ? "✓" : t.status === "rejected" ? "⊘" : "✗"} {t.name}
-            </li>
-          ))}
-        </ul>
-      )}
-      <div className="whitespace-pre-wrap text-sm leading-relaxed">
-        <WithCitations text={m.content} citations={m.citations} />
+      <ToolBadges tools={m.tools} />
+      <div className="text-sm leading-relaxed">
+        <RichText text={m.content} citations={m.citations} />
+        {m.status === "pending" && <span className="ml-0.5 inline-block w-2 animate-pulse">▍</span>}
       </div>
       {m.citations.length > 0 && (
         <ul className="flex flex-col gap-1">
@@ -227,23 +268,19 @@ function MessageBubble({ message: m, onRetry }: { message: Message; onRetry: () 
   );
 }
 
-function WithCitations({ text, citations }: { text: string; citations: Citation[] }) {
-  const byLabel = new Map(citations.map((c) => [c.label, c]));
+function ToolBadges({ tools }: { tools?: Message["tools"] }) {
+  if (!tools?.length) return null;
   return (
-    <>
-      {text.split(/(\[S\d+\])/g).map((part, i) => {
-        const c = byLabel.get(part.slice(1, -1));
-        if (!c) return <span key={i}>{part}</span>;
-        return (
-          <sup
-            key={i}
-            title={`${c.filename}${c.section ? ` § ${c.section}` : ""}`}
-            className="mx-0.5 cursor-help rounded bg-black/10 px-1 font-mono text-[0.65rem] dark:bg-white/15"
-          >
-            {c.label}
-          </sup>
-        );
-      })}
-    </>
+    <ul className="flex flex-wrap gap-1">
+      {tools.map((t, i) => (
+        <li
+          key={i}
+          title={t.error ?? undefined}
+          className={`rounded px-1.5 py-0.5 font-mono text-[0.7rem] ${TOOL_STYLE[t.status]}`}
+        >
+          {t.status === "ok" ? "✓" : t.status === "rejected" ? "⊘" : "✗"} {t.name}
+        </li>
+      ))}
+    </ul>
   );
 }

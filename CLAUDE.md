@@ -36,6 +36,12 @@ The full design lives in `Implementation_Plan.md`. Read it before starting a pha
 - New schema goes in a new numbered migration file. Never edit an applied one.
 - `npm run lint`
 
+## Gemini models
+- Being listed in `models.list()` doesn't mean a model is usable: models get retired for new keys (404).
+  Before changing `GEMINI_CHAT_MODEL` / `GEMINI_FALLBACK_MODELS`, run `.venv/bin/python scripts/check_models.py`.
+- Gemini 3.x rejects `thinking_budget=0`, so use `llm._thinking(model)`. Send the model's own `Content`
+  back after tool calls (thought signatures).
+
 ## Working style
 - Build one phase per commit/PR, as in the plan's §9.
 - Keep Python dependencies lean (Vercel's 250 MB bundle limit). No LangChain or torch.

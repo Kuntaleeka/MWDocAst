@@ -213,6 +213,31 @@ factual question about that document with a citation.
 
 ---
 
+### Phase 6 notes: streaming, and a fallback that never worked
+
+- `POST /chat/stream` sends SSE events: `meta` (saved question and ids) → `status` / `token` / `tool` →
+  `done` (the *saved* message). Streamed text is provisional: the client swaps in the saved message,
+  whose citations have been validated. The chat pipeline is one generator (`answer_events`) shared by
+  the streaming and non-streaming endpoints. If the client disconnects mid-answer, the message is marked
+  `failed` (retryable) instead of staying `pending`.
+- `llm.stream` only retries or falls back **before the first token** is sent. After that, a failure is
+  an "interrupted" error, not a silent restart that would duplicate text.
+- **Bug found while testing streaming live:** the Phase 4 fallback model `gemini-2.5-flash-lite` returns
+  **404 "no longer available to new users"** on this key, so the fallback had *never* worked. The unit
+  tests used fake models and passed, and the model even appeared in `models.list()`. Once the primary hit
+  its free-tier quota, every answer failed, and the 404 overwrote the rate-limit message, so users saw a
+  vague "failed to answer". This also explains the unreproducible Phase 5 failure. Fixes:
+  - Model chain `gemini-3.5-flash-lite` → `gemini-3-flash-preview` → `gemini-2.5-flash`, configurable
+    through `GEMINI_CHAT_MODEL` and `GEMINI_FALLBACK_MODELS`.
+  - `scripts/check_models.py` makes a real streaming call and a real tool call on each model in the chain.
+  - Error precedence: "rate-limited" wins over later 404/400 errors.
+- Gemini 3.x rejects `thinking_budget=0` with a 400. Thinking config is chosen per model family (2.x:
+  budget 0, 3.x: `thinking_level="low"`). 3.x also attaches thought signatures to function calls, which
+  must be sent back verbatim. The loop already does this by returning the model's own `Content`.
+- Latency: the database is in Seoul (`ap-northeast-2`) and Vercel defaulted to `iad1`. At about 180 ms per
+  query and ~20 queries per chat turn, that's seconds of network wait, so `vercel.json` pins functions
+  to `icn1`.
+
 ## 7. Frontend (Next.js)
 
 - `/login` — Supabase Auth email/password, plus a throwaway demo account.

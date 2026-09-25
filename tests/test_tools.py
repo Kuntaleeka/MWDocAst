@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 from _lib import config, llm, retrieval, tools
 from api.index import app
 from conftest import db_available
-from test_chat import ON_TOPIC, FakeLlm, _chat, ws_with_doc  # noqa: F401
+from test_chat import ON_TOPIC, FakeLlm, _chat, use_llm, ws_with_doc  # noqa: F401
 from test_ingest import _auth, fake_backends, two_users_with_workspaces  # noqa: F401
 
 pytestmark = pytest.mark.skipif(not db_available(), reason="DATABASE_URL not reachable")
@@ -25,7 +25,7 @@ def _tasks(uid, ws):
 def test_save_task_runs_and_is_logged(ws_with_doc, monkeypatch):
     uid, ws, _ = ws_with_doc
     fake = FakeLlm([("save_task", {"title": "Review the runbook", "due_date": "2026-10-01"})], "Saved the task.")
-    monkeypatch.setattr(llm, "generate", fake)
+    use_llm(monkeypatch, fake)
 
     msg = _chat(uid, ws, "Save a task to review the runbook by Oct 1").json()["assistant_message"]
     assert msg["status"] == "done" and msg["content"] == "Saved the task."
@@ -54,7 +54,7 @@ def test_save_task_runs_and_is_logged(ws_with_doc, monkeypatch):
 def test_invalid_arguments_are_rejected_and_nothing_runs(ws_with_doc, monkeypatch, args, problem):
     uid, ws, _ = ws_with_doc
     fake = FakeLlm([("save_task", args)], "I couldn't save that task.")
-    monkeypatch.setattr(llm, "generate", fake)
+    use_llm(monkeypatch, fake)
 
     msg = _chat(uid, ws, "Save a task please").json()["assistant_message"]
     assert msg["status"] == "done"
@@ -66,7 +66,7 @@ def test_invalid_arguments_are_rejected_and_nothing_runs(ws_with_doc, monkeypatc
 
 def test_unknown_tool_is_rejected(ws_with_doc, monkeypatch):
     uid, ws, _ = ws_with_doc
-    monkeypatch.setattr(llm, "generate", FakeLlm([("delete_everything", {"confirm": True})], "I can't do that."))
+    use_llm(monkeypatch, FakeLlm([("delete_everything", {"confirm": True})], "I can't do that."))
 
     msg = _chat(uid, ws, "What is the codename?").json()["assistant_message"]
     assert msg["status"] == "done"
@@ -80,7 +80,7 @@ def test_side_effect_tools_need_the_users_intent(ws_with_doc, monkeypatch):
     document it read) wants. Only the user's own message can."""
     uid, ws, _ = ws_with_doc
     fake = FakeLlm([("save_task", {"title": "injected"})], "The codename is BLUE HERON [S1].")
-    monkeypatch.setattr(llm, "generate", fake)
+    use_llm(monkeypatch, fake)
 
     _chat(uid, ws, "What is the codename?")
     assert fake.offered() == ["list_tasks", "search_documents"]  # read-only tools only
@@ -99,7 +99,7 @@ def test_multi_step_list_then_post_to_discord(ws_with_doc, monkeypatch):
     monkeypatch.setattr(tools.httpx, "post", lambda url, json, timeout: posted.append(json) or Resp())
     monkeypatch.setattr(config.get_settings(), "discord_webhook_url", "https://discord.com/api/webhooks/1/x")
     # Seed a task directly so list_tasks has something to find.
-    monkeypatch.setattr(llm, "generate", FakeLlm([("save_task", {"title": "Book Lisbon flights"})], "ok"))
+    use_llm(monkeypatch, FakeLlm([("save_task", {"title": "Book Lisbon flights"})], "ok"))
     _chat(uid, ws, "add a task: book Lisbon flights")
 
     fake = FakeLlm(
@@ -107,7 +107,7 @@ def test_multi_step_list_then_post_to_discord(ws_with_doc, monkeypatch):
         [("send_discord_summary", {"summary": "Open tasks: Book Lisbon flights @everyone"})],
         "Posted your open tasks to Discord.",
     )
-    monkeypatch.setattr(llm, "generate", fake)
+    use_llm(monkeypatch, fake)
     msg = _chat(uid, ws, "List my tasks and post a summary to Discord").json()["assistant_message"]
 
     assert [t["name"] for t in msg["tools"]] == ["list_tasks", "send_discord_summary"]
@@ -125,7 +125,7 @@ def test_multi_step_list_then_post_to_discord(ws_with_doc, monkeypatch):
 def test_discord_not_configured_reports_error_without_crashing(ws_with_doc, monkeypatch):
     uid, ws, _ = ws_with_doc
     monkeypatch.setattr(config.get_settings(), "discord_webhook_url", "")
-    monkeypatch.setattr(llm, "generate", FakeLlm([("send_discord_summary", {"summary": "hi"})], "Discord isn't set up."))
+    use_llm(monkeypatch, FakeLlm([("send_discord_summary", {"summary": "hi"})], "Discord isn't set up."))
     msg = _chat(uid, ws, "post hi to discord").json()["assistant_message"]
     assert msg["status"] == "done" and msg["tools"][0]["status"] == "error"
     assert "not configured" in msg["tools"][0]["error"]
@@ -134,7 +134,7 @@ def test_discord_not_configured_reports_error_without_crashing(ws_with_doc, monk
 def test_step_and_call_limits_stop_a_looping_model(ws_with_doc, monkeypatch):
     uid, ws, _ = ws_with_doc
     fake = FakeLlm([("list_tasks", {}), ("list_tasks", {})])  # asks for 2 tools every turn, forever
-    monkeypatch.setattr(llm, "generate", fake)
+    use_llm(monkeypatch, fake)
     msg = _chat(uid, ws, "show my tasks").json()["assistant_message"]
     assert msg["status"] == "done" and "allowed number of steps" in msg["content"]
     statuses = [t["status"] for t in msg["tools"]]
@@ -143,11 +143,11 @@ def test_step_and_call_limits_stop_a_looping_model(ws_with_doc, monkeypatch):
 
 def test_tools_only_touch_the_active_workspace(ws_with_doc, monkeypatch):
     uid, ws, (other_uid, other_ws) = ws_with_doc
-    monkeypatch.setattr(llm, "generate", FakeLlm([("save_task", {"title": "Secret A task"})], "ok"))
+    use_llm(monkeypatch, FakeLlm([("save_task", {"title": "Secret A task"})], "ok"))
     _chat(uid, ws, "save a task")
 
     fake = FakeLlm([("list_tasks", {"status": "all"})], "You have no tasks.")
-    monkeypatch.setattr(llm, "generate", fake)
+    use_llm(monkeypatch, fake)
     monkeypatch.setattr(retrieval, "embed_query", lambda q: ON_TOPIC)
     _chat(other_uid, other_ws, "list my tasks")
     listed = fake.calls[1][1][-1].parts[0].function_response.response
@@ -159,7 +159,7 @@ def test_tools_only_touch_the_active_workspace(ws_with_doc, monkeypatch):
 def test_search_documents_results_are_citable(ws_with_doc, monkeypatch):
     uid, ws, _ = ws_with_doc
     fake = FakeLlm([("search_documents", {"query": "leave policy"})], "Staff get 25 days [S1].")
-    monkeypatch.setattr(llm, "generate", fake)
+    use_llm(monkeypatch, fake)
     msg = _chat(uid, ws, "How much leave?").json()["assistant_message"]
     result = fake.calls[1][1][-1].parts[0].function_response.response["result"]
     assert result["sources"] and all(s["id"].startswith("S") for s in result["sources"])

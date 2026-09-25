@@ -29,7 +29,7 @@ Upload PDF, Markdown or .txt files (10 MB max each). Each file is chunked, embed
 (768-dim) and stored in the shared `chunks` table, tagged with its workspace. Re-uploading the same
 file into a workspace is a no-op.
 
-The **Chat** tab answers from the active workspace's documents only, with inline citations ([S1])
+The **Chat** tab streams answers token by token from the active workspace's documents only, with inline citations ([S1])
 that expand to the source file, section and snippet. When the documents don't cover a question it
 answers "I don't know based on the documents in this workspace." Failed answers keep the question
 and can be retried.
@@ -47,6 +47,9 @@ The assistant can also **call tools**. Each call is validated against a schema a
 Try: *"Save a task to review the deploy runbook by Friday"*, then *"List my open tasks and post a
 summary to Discord"*.
 
+Check that the configured Gemini models work for your key (free-tier models get retired):
+`.venv/bin/python scripts/check_models.py`
+
 Tests: `npm run test:api`. Add `LIVE_TESTS=1` to also run the end-to-end isolation test against
 real Gemini embeddings.
 
@@ -56,5 +59,6 @@ else is read only by the Python functions.
 
 ## Deployment
 Deployed to Vercel as a single project. Next.js serves the UI, and `api/index.py` runs as a Python
-serverless function. Set the same environment variables in Vercel → Project → Settings → Environment
+serverless function, pinned to the `icn1` (Seoul) region in `vercel.json` to sit next to the
+Supabase database. If your Supabase project is in another region, change it to match. Set the same environment variables in Vercel → Project → Settings → Environment
 Variables.

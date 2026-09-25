@@ -10,20 +10,24 @@ Flow per question:
   5. Mark the assistant message 'done', or 'failed' with a user-safe reason (retryable).
 """
 
+import json
+import logging
 import time
+from collections.abc import Iterator
 from datetime import datetime
 from typing import Annotated, Any
 from uuid import UUID
 
 import psycopg
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import StreamingResponse
 from google.genai import types
 from pydantic import BaseModel, Field
 from psycopg.types.json import Jsonb
 
 from . import llm, tools
 from .auth import WorkspaceContext, workspace_context
-from .db import get_conn
+from .db import connect, get_conn
 from .embeddings import EmbeddingError
 from .prompts import I_DONT_KNOW, SYSTEM_PROMPT, extract_citations, strip_citations, user_turn
 from .retrieval import RELEVANCE_FLOOR, RetrievedChunk, retrieve
@@ -34,6 +38,8 @@ HISTORY_MESSAGES = 6
 MAX_STEPS = 5            # model turns per answer (each may request tools)
 MAX_TOOL_CALLS = 8       # tool executions per answer
 STALE_PENDING = "2 minutes"  # a 'pending' answer older than this is assumed dead (e.g. timeout)
+
+log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/py/workspaces/{workspace_id}", tags=["chat"])
 
@@ -114,12 +120,11 @@ def list_messages(conversation_id: UUID, ctx: Ctx, conn: Conn) -> list[MessageOu
     return [MessageOut(**r) for r in rows]
 
 
-@router.post("/chat")
-def chat(body: ChatIn, ctx: Ctx, conn: Conn) -> ChatOut:
+def _start_turn(conn: psycopg.Connection, ctx: WorkspaceContext, body: ChatIn) -> tuple[UUID, UUID, UUID, str]:
+    """Persist the question and a pending answer before any model work (nothing is lost on failure)."""
     question = body.message.strip()
     if not question:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Message is empty")
-
     with conn.transaction():
         if body.conversation_id:
             _conversation_or_404(conn, ctx, body.conversation_id)
@@ -132,13 +137,62 @@ def chat(body: ChatIn, ctx: Ctx, conn: Conn) -> ChatOut:
         user_id = _insert_message(conn, ctx, conversation_id, "user", question, "done")
         assistant_id = _insert_message(conn, ctx, conversation_id, "assistant", "", "pending")
         conn.execute("update conversations set updated_at = now() where id = %s", (conversation_id,))
+    return conversation_id, user_id, assistant_id, question
 
+
+@router.post("/chat")
+def chat(body: ChatIn, ctx: Ctx, conn: Conn) -> ChatOut:
+    conversation_id, user_id, assistant_id, question = _start_turn(conn, ctx, body)
     answer(conn, ctx, conversation_id, assistant_id, question)
     return ChatOut(
         conversation_id=conversation_id,
         user_message=_message(conn, ctx, user_id),
         assistant_message=_message(conn, ctx, assistant_id),
     )
+
+
+@router.post("/chat/stream")
+def chat_stream(body: ChatIn, ctx: Ctx, conn: Conn) -> StreamingResponse:
+    """Same as /chat, streamed as Server-Sent Events.
+
+    Events: meta (ids + saved question) → status/token/tool while answering → done (final saved
+    message, with validated citations). Streamed text is provisional: the client replaces it with
+    the saved message from `done`.
+    """
+    conversation_id, user_id, assistant_id, question = _start_turn(conn, ctx, body)
+    user_message = _message(conn, ctx, user_id)
+
+    def events() -> Iterator[str]:
+        # Own connection: the request-scoped one may be closed before the stream ends.
+        with connect() as sconn:
+            completed = False
+            try:
+                yield _sse("meta", {
+                    "conversation_id": str(conversation_id),
+                    "user_message": user_message.model_dump(mode="json"),
+                    "assistant_message_id": str(assistant_id),
+                })
+                for event in answer_events(sconn, ctx, conversation_id, assistant_id, question):
+                    yield _sse(event.pop("type"), event)
+                completed = True
+                yield _sse("done", {"message": _message(sconn, ctx, assistant_id).model_dump(mode="json")})
+            finally:
+                if not completed:
+                    # Client disconnected mid-answer: don't leave the message 'pending' forever.
+                    sconn.execute(
+                        "update messages set status = 'failed', error = %s where id = %s and status = 'pending'",
+                        ("The connection was interrupted. Retry to get the answer.", assistant_id),
+                    )
+
+    return StreamingResponse(
+        events(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache, no-transform", "X-Accel-Buffering": "no"},
+    )
+
+
+def _sse(event: str, data: dict[str, Any]) -> str:
+    return f"event: {event}\ndata: {json.dumps(data, default=str)}\n\n"
 
 
 @router.post("/messages/{message_id}/retry")
@@ -216,7 +270,29 @@ def _history(conn, conversation_id: UUID, before_message: UUID) -> list[types.Co
 
 
 def answer(conn: psycopg.Connection, ctx: WorkspaceContext, conversation_id: UUID, message_id: UUID, question: str) -> None:
+    """Run the whole pipeline without streaming (used by /chat and /retry)."""
+    for _ in answer_events(conn, ctx, conversation_id, message_id, question):
+        pass
+
+
+def answer_events(
+    conn: psycopg.Connection, ctx: WorkspaceContext, conversation_id: UUID, message_id: UUID, question: str
+) -> Iterator[dict[str, Any]]:
+    """The answer pipeline as a stream of UI events: status, token, tool.
+
+    Whatever happens, the assistant message ends 'done' or 'failed'. Unexpected errors are logged
+    and turned into a failed (retryable) message instead of leaving it 'pending'.
+    """
+    try:
+        yield from _answer_events(conn, ctx, conversation_id, message_id, question)
+    except Exception:
+        log.exception("answer failed for message %s", message_id)
+        _finish(conn, message_id, error="Something went wrong while answering. Try again.")
+
+
+def _answer_events(conn, ctx, conversation_id, message_id, question) -> Iterator[dict[str, Any]]:
     start = time.monotonic()
+    yield {"type": "status", "stage": "searching"}
     try:
         hits = retrieve(conn, ctx, question, RETRIEVE_K)
     except EmbeddingError:
@@ -235,33 +311,53 @@ def answer(conn: psycopg.Connection, ctx: WorkspaceContext, conversation_id: UUI
         types.Content(role="user", parts=[types.Part(text=user_turn(question, sources))])
     ]
     calls_made = 0
-    text = "I couldn't finish that request in the allowed number of steps. Try a simpler request."
+    texts: list[str] = []
+    finished = False
     for _ in range(MAX_STEPS):
+        yield {"type": "status", "stage": "writing"}
+        result = None
         try:
-            result = llm.generate(SYSTEM_PROMPT, contents, tools.declarations(offered))
+            for item in llm.stream(SYSTEM_PROMPT, contents, tools.declarations(offered)):
+                if isinstance(item, llm.LlmResult):
+                    result = item
+                else:
+                    yield {"type": "token", "text": item}
         except llm.LlmError as exc:
             _record_llm(conn, ctx, message_id, None, error=str(exc), latency_ms=int((time.monotonic() - start) * 1000))
             _finish(conn, message_id, error=str(exc))
             return
         _record_llm(conn, ctx, message_id, result)
+        if result.text:
+            texts.append(result.text)
         if not result.function_calls:
-            text = result.text
+            finished = True
             break
 
         contents.append(result.content)
         responses = []
         for call in result.function_calls:
             calls_made += 1
+            name = call.name or ""
             if calls_made > MAX_TOOL_CALLS:
-                out = tools.reject(tool_ctx, call.name or "", call.args, "Tool call limit reached for this answer")
+                out = tools.reject(tool_ctx, name, call.args, "Tool call limit reached for this answer")
             else:
-                out = tools.execute(tool_ctx, call.name or "", call.args, offered)
-            responses.append(types.Part.from_function_response(name=call.name or "unknown", response=out))
+                yield {"type": "status", "stage": "tool", "name": name}
+                out = tools.execute(tool_ctx, name, call.args, offered)
+            yield {"type": "tool", "name": name, "status": _tool_status(out), "error": out.get("error")}
+            responses.append(types.Part.from_function_response(name=name or "unknown", response=out))
         contents.append(types.Content(role="user", parts=responses))
 
+    if not finished:
+        texts.append("I couldn't finish that request in the allowed number of steps. Try a simpler request.")
     # tool_ctx.sources may have grown through search_documents; citations can point at those too.
-    text, citations = extract_citations(text, tool_ctx.sources)
+    text, citations = extract_citations("\n\n".join(texts), tool_ctx.sources)
     _finish(conn, message_id, content=text, citations=citations)
+
+
+def _tool_status(out: dict) -> str:
+    if out.get("ok"):
+        return "ok"
+    return "error" if out.get("failed") else "rejected"
 
 
 def _record_retrieval(conn, ctx, message_id, query, hits: list[RetrievedChunk], used: list[RetrievedChunk], latency_ms: int) -> None:

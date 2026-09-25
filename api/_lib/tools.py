@@ -253,7 +253,10 @@ def execute(ctx: ToolContext, name: str, raw_args: Any, offered: list[Tool]) -> 
 
     def finish(status: str, *, result: dict | None = None, error: str | None = None) -> dict:
         _log_call(ctx, name, args_for_log, status, result, error, int((time.monotonic() - start) * 1000))
-        return {"ok": True, "result": result} if status == "ok" else {"ok": False, "error": error}
+        if status == "ok":
+            return {"ok": True, "result": result}
+        # "failed": the tool ran and failed (vs. refused before running).
+        return {"ok": False, "error": error, **({"failed": True} if status == "error" else {})}
 
     if tool is None:
         return finish("rejected", error=f"Unknown tool '{name[:80]}'. Available: {', '.join(t.name for t in offered)}")

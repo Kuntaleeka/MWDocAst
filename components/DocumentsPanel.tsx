@@ -33,6 +33,14 @@ export function DocumentsPanel({ workspaceId }: { workspaceId: string }) {
 
   useEffect(refresh, [refresh]);
 
+  // Another tab (or a slow ingest) may still be processing: poll until everything settles.
+  const processing = docs?.some((d) => d.status === "processing") ?? false;
+  useEffect(() => {
+    if (!processing) return;
+    const t = setInterval(refresh, 4000);
+    return () => clearInterval(t);
+  }, [processing, refresh]);
+
   function setRow(i: number, row: Partial<UploadRow>) {
     setUploads((rows) => rows.map((r, j) => (j === i ? { ...r, ...row } : r)));
   }
