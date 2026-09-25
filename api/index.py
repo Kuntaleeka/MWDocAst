@@ -8,7 +8,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from fastapi import FastAPI  # noqa: E402
 
-from _lib import documents, workspaces  # noqa: E402
+from _lib import documents, retrieval, workspaces  # noqa: E402
 
 app = FastAPI(
     title="MWDocAst API",
@@ -17,6 +17,7 @@ app = FastAPI(
 )
 app.include_router(workspaces.router)
 app.include_router(documents.router)
+app.include_router(retrieval.router)
 
 
 @app.get("/api/py/health")

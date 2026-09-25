@@ -29,7 +29,8 @@ Upload PDF, Markdown or .txt files (10 MB max each). Each file is chunked, embed
 (768-dim) and stored in the shared `chunks` table, tagged with its workspace. Re-uploading the same
 file into a workspace is a no-op.
 
-Tests: `npm run test:api`
+Tests: `npm run test:api`. Add `LIVE_TESTS=1` to also run the end-to-end isolation test against
+real Gemini embeddings.
 
 ## Environment variables
 See [.env.example](.env.example). Only `NEXT_PUBLIC_*` variables are sent to the browser. Everything

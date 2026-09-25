@@ -136,6 +136,13 @@ so the Supabase REST API denies everything. The browser never touches tables. On
   context, so a prompt injection can't point a tool at another workspace.
 - A pytest seeds a distinctive fact into workspace A, queries from workspace B, and asserts none of that
   document's chunk IDs come back. Runs in CI.
+- **Implemented (Phase 3):** `match_chunks()` in migration 0003 sets `hnsw.iterative_scan = relaxed_order`
+  on the function and re-sorts the output. Execute rights are revoked from `anon`/`authenticated`.
+  `tests/test_retrieval_isolation.py` forces the HNSW path and shows the gotcha for real: with iterative
+  scan off, workspace B gets **0 rows** back because A's neighbours fill the candidate list. With it on,
+  B gets all 5 of its own chunks and nothing from A. `tests/test_live_isolation.py` (LIVE_TESTS=1) does
+  the same with real Gemini embeddings: top similarity was 0.77 for the relevant chunk in A and 0.60 for
+  B's best (irrelevant) chunk.
 
 ---
 

@@ -14,7 +14,7 @@ import psycopg
 
 from . import storage
 from .chunking import chunk_sections
-from .embeddings import EmbeddingError, embed_documents
+from .embeddings import EmbeddingError, embed_documents, to_pgvector
 from .parsing import MAX_BYTES, UnsupportedDocument, extension, parse
 
 log = logging.getLogger(__name__)
@@ -125,7 +125,7 @@ def process_document(conn: psycopg.Connection, document_id: UUID, filename: str,
                 values (%s, %s, %s, %s, %s, %s::extensions.vector)
                 """,
                 [
-                    (workspace_id, document_id, c.index, c.section, c.content, _vector_literal(v))
+                    (workspace_id, document_id, c.index, c.section, c.content, to_pgvector(v))
                     for c, v in zip(chunks, vectors, strict=True)
                 ],
             )
@@ -141,6 +141,3 @@ def _mark_failed(conn: psycopg.Connection, document_id: UUID, reason: str) -> No
         (reason[:500], document_id),
     )
 
-
-def _vector_literal(v: list[float]) -> str:
-    return "[" + ",".join(f"{x:.7g}" for x in v) + "]"

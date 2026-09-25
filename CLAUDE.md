@@ -13,7 +13,8 @@ The full design lives in `Implementation_Plan.md`. Read it before starting a pha
 
 ## Non-negotiable rules
 1. **Isolation:** every chunk query filters `workspace_id` inside the SQL vector query, never after it.
-   Never add a per-workspace table or index.
+   Never add a per-workspace table or index. Read chunks only through `retrieval.search()` /
+   `match_chunks`, which takes the workspace from a verified `WorkspaceContext`.
 2. **Workspace ID comes from the server.** Tool executors get it from the verified request context,
    never from model output.
 3. **Validate every tool call** against its pydantic schema. Log unknown tools and bad args as
@@ -28,6 +29,7 @@ The full design lives in `Implementation_Plan.md`. Read it before starting a pha
 ## Commands
 - `npm run dev`: Next.js on :3000 and FastAPI on :8000
 - `npm run test:api`: pytest (DB tests skip if DATABASE_URL is unreachable)
+- `LIVE_TESTS=1 npm run test:api`: also runs tests that call Gemini (uses quota)
 - `npm run db:migrate`: apply `supabase/migrations/*.sql` in order (tracked in `schema_migrations`)
 - New schema goes in a new numbered migration file. Never edit an applied one.
 - `npm run lint`

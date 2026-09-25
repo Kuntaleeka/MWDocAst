@@ -53,3 +53,8 @@ def embed_documents(texts: list[str]) -> list[list[float]]:
 
 def embed_query(text: str) -> list[float]:
     return _embed_batch([text], "RETRIEVAL_QUERY")[0]
+
+
+def to_pgvector(v: list[float]) -> str:
+    """Text form accepted by `::extensions.vector` casts."""
+    return "[" + ",".join(f"{x:.7g}" for x in v) + "]"
