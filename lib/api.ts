@@ -44,3 +44,24 @@ export type DocumentInfo = {
   chunk_count: number;
   created_at: string;
 };
+
+export type Citation = {
+  label: string;
+  chunk_id: string;
+  document_id: string;
+  filename: string;
+  section: string | null;
+  snippet: string;
+};
+
+export type Message = {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  status: "pending" | "done" | "failed";
+  error: string | null;
+  citations: Citation[];
+  created_at: string;
+};
+
+export type Conversation = { id: string; title: string; updated_at: string };

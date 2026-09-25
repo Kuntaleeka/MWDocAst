@@ -2,6 +2,7 @@
 
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import { ChatPanel } from "@/components/ChatPanel";
 import { DocumentsPanel } from "@/components/DocumentsPanel";
 import { SignOutButton } from "@/components/SignOutButton";
 import { WorkspaceSwitcher } from "@/components/WorkspaceSwitcher";
@@ -13,6 +14,7 @@ export default function WorkspaceDashboard() {
   const [workspaces, setWorkspaces] = useState<Workspace[] | null>(null);
   const [active, setActive] = useState<Workspace | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [tab, setTab] = useState<"chat" | "documents">("chat");
 
   useEffect(() => {
     // The server re-checks membership; a workspace you don't belong to is a 404.
@@ -37,10 +39,29 @@ export default function WorkspaceDashboard() {
         <WorkspaceSwitcher workspaces={workspaces} activeId={active.id} />
         <SignOutButton />
       </header>
-      <main className="flex w-full max-w-4xl flex-1 flex-col gap-6 p-6">
-        <h1 className="text-xl font-semibold">{active.name}</h1>
+      <main className="flex w-full max-w-5xl flex-1 flex-col gap-6 p-6">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h1 className="text-xl font-semibold">{active.name}</h1>
+          <nav className="flex gap-1 text-sm">
+            {(["chat", "documents"] as const).map((t) => (
+              <button
+                key={t}
+                onClick={() => setTab(t)}
+                className={`rounded px-3 py-1 capitalize ${
+                  tab === t ? "bg-foreground text-background" : "opacity-70 hover:opacity-100"
+                }`}
+              >
+                {t}
+              </button>
+            ))}
+          </nav>
+        </div>
         {/* key: remount on workspace switch so no state leaks between workspaces */}
-        <DocumentsPanel key={active.id} workspaceId={active.id} />
+        {tab === "chat" ? (
+          <ChatPanel key={active.id} workspaceId={active.id} />
+        ) : (
+          <DocumentsPanel key={active.id} workspaceId={active.id} />
+        )}
       </main>
     </div>
   );

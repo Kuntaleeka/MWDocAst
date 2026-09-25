@@ -29,6 +29,11 @@ Upload PDF, Markdown or .txt files (10 MB max each). Each file is chunked, embed
 (768-dim) and stored in the shared `chunks` table, tagged with its workspace. Re-uploading the same
 file into a workspace is a no-op.
 
+The **Chat** tab answers from the active workspace's documents only, with inline citations ([S1])
+that expand to the source file, section and snippet. When the documents don't cover a question it
+answers "I don't know based on the documents in this workspace." Failed answers keep the question
+and can be retried.
+
 Tests: `npm run test:api`. Add `LIVE_TESTS=1` to also run the end-to-end isolation test against
 real Gemini embeddings.
 

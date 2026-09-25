@@ -170,6 +170,14 @@ so the Supabase REST API denies everything. The browser never touches tables. On
 7. Update assistant message → done (or failed + error, with a Retry button in the UI)
 ```
 
+**Implemented (Phase 4), measured on real Gemini embeddings:** on-topic questions score 0.68–0.79,
+off-topic ones 0.52–0.61. `RELEVANCE_FLOOR = 0.6`: below it the LLM isn't called at all and the answer
+is a fixed "I don't know" (e.g. "capital of France", 0.52). Borderline matches ("Who is the CEO?", 0.61)
+reach the model, which still refuses because of the prompt rule. Two layers, so neither has to be perfect.
+The free-tier Gemini RPM limit caused a real 429 during calibration. `llm.generate` now moves to
+`GEMINI_FALLBACK_MODEL` (flash-lite, separate quota) on 429 instead of sleeping, and a final failure
+marks the answer `failed` with a Retry button. The question is never lost.
+
 **Tools** — an allowlist registry; each tool's pydantic schema also generates its Gemini declaration.
 
 | Tool | Side effect | Notes |

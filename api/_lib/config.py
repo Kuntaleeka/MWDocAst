@@ -25,6 +25,8 @@ class Settings(BaseModel):
     database_url: str
     supabase_service_role_key: str = ""
     gemini_api_key: str = ""
+    gemini_chat_model: str = "gemini-2.5-flash"
+    gemini_fallback_model: str = "gemini-2.5-flash-lite"
 
     @property
     def jwt_issuer(self) -> str:
@@ -40,4 +42,7 @@ def get_settings() -> Settings:
         database_url=os.environ["DATABASE_URL"],
         supabase_service_role_key=os.environ.get("SUPABASE_SERVICE_ROLE_KEY", ""),
         gemini_api_key=os.environ.get("GEMINI_API_KEY", ""),
+        gemini_chat_model=os.environ.get("GEMINI_CHAT_MODEL") or "gemini-2.5-flash",
+        # Set to an empty string to disable the fallback.
+        gemini_fallback_model=os.environ.get("GEMINI_FALLBACK_MODEL", "gemini-2.5-flash-lite"),
     )
