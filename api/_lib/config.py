@@ -27,6 +27,7 @@ class Settings(BaseModel):
     gemini_api_key: str = ""
     gemini_chat_model: str = "gemini-2.5-flash"
     gemini_fallback_model: str = "gemini-2.5-flash-lite"
+    discord_webhook_url: str = ""
 
     @property
     def jwt_issuer(self) -> str:
@@ -45,4 +46,5 @@ def get_settings() -> Settings:
         gemini_chat_model=os.environ.get("GEMINI_CHAT_MODEL") or "gemini-2.5-flash",
         # Set to an empty string to disable the fallback.
         gemini_fallback_model=os.environ.get("GEMINI_FALLBACK_MODEL", "gemini-2.5-flash-lite"),
+        discord_webhook_url=os.environ.get("DISCORD_WEBHOOK_URL", "").strip(),
     )

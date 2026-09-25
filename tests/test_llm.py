@@ -1,5 +1,5 @@
 import pytest
-from google.genai import errors
+from google.genai import errors, types
 
 from _lib import llm
 
@@ -13,7 +13,9 @@ class FakeModels:
         outcome = self.script[model].pop(0)
         if isinstance(outcome, Exception):
             raise outcome
-        return type("R", (), {"text": outcome, "usage_metadata": None})()
+        return types.GenerateContentResponse(
+            candidates=[types.Candidate(content=types.Content(role="model", parts=[types.Part(text=outcome)]))]
+        )
 
 
 def _install(monkeypatch, script):

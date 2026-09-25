@@ -14,6 +14,11 @@ from .embeddings import embed_query, to_pgvector
 
 DEFAULT_K = 8
 
+# Gemini embedding similarity for on-topic chunks lands around 0.7-0.8; unrelated text in the same
+# language scores ~0.5-0.6 (measured in tests/test_live_isolation.py). Chunks below the floor are
+# never shown to the model; the model itself still says "I don't know" for borderline matches.
+RELEVANCE_FLOOR = 0.6
+
 
 @dataclass(frozen=True)
 class RetrievedChunk:

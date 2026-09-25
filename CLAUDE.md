@@ -18,7 +18,9 @@ The full design lives in `Implementation_Plan.md`. Read it before starting a pha
 2. **Workspace ID comes from the server.** Tool executors get it from the verified request context,
    never from model output.
 3. **Validate every tool call** against its pydantic schema. Log unknown tools and bad args as
-   `rejected` and return an error to the model. Never raise.
+   `rejected` and return an error to the model. Never raise. All execution goes through
+   `tools.execute`. Side-effect tools are offered only when the *user's* message matches their
+   intent pattern (documents can't unlock them), and must be idempotent per answer, since retries re-run the loop.
 4. **Retrieved document text is untrusted data.** Wrap it in delimiters, escape it, and never let it
    change instructions or the tool set. No destructive tools.
 5. **Secrets stay server-side.** Only `NEXT_PUBLIC_*` variables may reach the browser. Never log keys

@@ -2,6 +2,7 @@
 
 import pytest
 from fastapi.testclient import TestClient
+from google.genai import types
 
 from _lib import llm, retrieval
 from _lib.prompts import I_DONT_KNOW
@@ -17,14 +18,27 @@ OFF_TOPIC = [0.0, 1.0] + [0.0] * 766  # orthogonal → similarity 0.0
 
 
 class FakeLlm:
-    def __init__(self, reply="The codename is BLUE HERON [S1]. Also see [S9]."):
-        self.reply, self.calls = reply, []
+    """Plays back scripted model turns. A str is a final answer; a list of (name, args) is a turn
+    requesting those tool calls; an Exception is raised. The last item repeats if the script runs out."""
 
-    def __call__(self, system, contents):
-        self.calls.append((system, contents))
-        if isinstance(self.reply, Exception):
-            raise self.reply
-        return llm.LlmResult(self.reply, 100, 10, 5)
+    def __init__(self, *script):
+        self.script = list(script) or ["The codename is BLUE HERON [S1]. Also see [S9]."]
+        self.calls = []
+
+    def __call__(self, system, contents, tools=None):
+        self.calls.append((system, list(contents), tools))
+        turn = self.script.pop(0) if len(self.script) > 1 else self.script[0]
+        if isinstance(turn, Exception):
+            raise turn
+        if isinstance(turn, str):
+            return llm.LlmResult(turn, 100, 10, 5, model="fake")
+        fcs = [types.FunctionCall(name=n, args=a) for n, a in turn]
+        content = types.Content(role="model", parts=[types.Part(function_call=fc) for fc in fcs])
+        return llm.LlmResult("", 100, 10, 5, model="fake", function_calls=fcs, content=content)
+
+    def offered(self, i=0):
+        tools = self.calls[i][2] or []
+        return sorted(d.name for t in tools for d in t.function_declarations)
 
 
 @pytest.fixture

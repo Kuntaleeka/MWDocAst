@@ -5,8 +5,13 @@ import { useEffect, useState } from "react";
 import { ChatPanel } from "@/components/ChatPanel";
 import { DocumentsPanel } from "@/components/DocumentsPanel";
 import { SignOutButton } from "@/components/SignOutButton";
+import { TasksPanel } from "@/components/TasksPanel";
+import { ToolLogPanel } from "@/components/ToolLogPanel";
 import { WorkspaceSwitcher } from "@/components/WorkspaceSwitcher";
 import { ApiError, apiFetch, type Workspace } from "@/lib/api";
+
+const TABS = ["chat", "documents", "tasks", "tool log"] as const;
+type Tab = (typeof TABS)[number];
 
 export default function WorkspaceDashboard() {
   const { wsId } = useParams<{ wsId: string }>();
@@ -14,7 +19,7 @@ export default function WorkspaceDashboard() {
   const [workspaces, setWorkspaces] = useState<Workspace[] | null>(null);
   const [active, setActive] = useState<Workspace | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [tab, setTab] = useState<"chat" | "documents">("chat");
+  const [tab, setTab] = useState<Tab>("chat");
 
   useEffect(() => {
     // The server re-checks membership; a workspace you don't belong to is a 404.
@@ -43,7 +48,7 @@ export default function WorkspaceDashboard() {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h1 className="text-xl font-semibold">{active.name}</h1>
           <nav className="flex gap-1 text-sm">
-            {(["chat", "documents"] as const).map((t) => (
+            {TABS.map((t) => (
               <button
                 key={t}
                 onClick={() => setTab(t)}
@@ -57,11 +62,10 @@ export default function WorkspaceDashboard() {
           </nav>
         </div>
         {/* key: remount on workspace switch so no state leaks between workspaces */}
-        {tab === "chat" ? (
-          <ChatPanel key={active.id} workspaceId={active.id} />
-        ) : (
-          <DocumentsPanel key={active.id} workspaceId={active.id} />
-        )}
+        {tab === "chat" && <ChatPanel key={active.id} workspaceId={active.id} />}
+        {tab === "documents" && <DocumentsPanel key={active.id} workspaceId={active.id} />}
+        {tab === "tasks" && <TasksPanel key={active.id} workspaceId={active.id} />}
+        {tab === "tool log" && <ToolLogPanel key={active.id} workspaceId={active.id} />}
       </main>
     </div>
   );

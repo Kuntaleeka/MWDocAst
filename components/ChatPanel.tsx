@@ -3,6 +3,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { apiFetch, type Citation, type Conversation, type Message } from "@/lib/api";
 
+const TOOL_STYLE = {
+  ok: "bg-green-600/15 text-green-700 dark:text-green-400",
+  rejected: "bg-amber-500/15 text-amber-700 dark:text-amber-400",
+  error: "bg-red-600/15 text-red-700 dark:text-red-400",
+} as const;
+
 type ChatResponse = { conversation_id: string; user_message: Message; assistant_message: Message };
 
 export function ChatPanel({ workspaceId }: { workspaceId: string }) {
@@ -182,6 +188,19 @@ function MessageBubble({ message: m, onRetry }: { message: Message; onRetry: () 
   }
   return (
     <div className="flex max-w-[85%] flex-col gap-2">
+      {m.tools && m.tools.length > 0 && (
+        <ul className="flex flex-wrap gap-1">
+          {m.tools.map((t, i) => (
+            <li
+              key={i}
+              title={t.error ?? undefined}
+              className={`rounded px-1.5 py-0.5 font-mono text-[0.7rem] ${TOOL_STYLE[t.status]}`}
+            >
+              {t.status === "ok" ? "✓" : t.status === "rejected" ? "⊘" : "✗"} {t.name}
+            </li>
+          ))}
+        </ul>
+      )}
       <div className="whitespace-pre-wrap text-sm leading-relaxed">
         <WithCitations text={m.content} citations={m.citations} />
       </div>

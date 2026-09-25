@@ -1,14 +1,17 @@
 """Gemini chat calls with a timeout, retry on transient errors, and token accounting."""
 
+import logging
 import random
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import lru_cache
 
 from google import genai
 from google.genai import errors, types
 
 from .config import get_settings
+
+log = logging.getLogger(__name__)
 
 TIMEOUT_MS = 45_000
 _RETRYABLE = {429, 500, 502, 503, 504}
@@ -25,6 +28,10 @@ class LlmResult:
     completion_tokens: int | None
     latency_ms: int
     model: str = ""
+    # Tool calls the model asked for, and its raw turn (which must be sent back verbatim so the
+    # model's function-call parts, including any thought signatures, stay intact).
+    function_calls: list[types.FunctionCall] = field(default_factory=list)
+    content: types.Content | None = None
 
 
 @lru_cache
@@ -43,7 +50,7 @@ def _models() -> list[str]:
     return [m for m in (s.gemini_chat_model, s.gemini_fallback_model) if m]
 
 
-def generate(system: str, contents: list[types.Content]) -> LlmResult:
+def generate(system: str, contents: list[types.Content], tools: list[types.Tool] | None = None) -> LlmResult:
     """Try the primary model, then the fallback.
 
     A 429 (free-tier quota) moves straight to the next model, since quotas are per model and waiting
@@ -55,6 +62,9 @@ def generate(system: str, contents: list[types.Content]) -> LlmResult:
         temperature=0.2,
         # Grounded Q&A over short contexts doesn't need thinking; it only adds latency.
         thinking_config=types.ThinkingConfig(thinking_budget=0),
+        tools=tools or None,
+        # We execute tools ourselves, after validation; never let the SDK call anything.
+        automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
     )
     start = time.monotonic()
     error = LlmError("The AI service failed to answer. Try again.")
@@ -63,6 +73,8 @@ def generate(system: str, contents: list[types.Content]) -> LlmResult:
             try:
                 res = _client().models.generate_content(model=model, contents=contents, config=config)
             except errors.APIError as exc:
+                # Status and Google's message only: no request contents, no key.
+                log.warning("gemini %s error %s: %s", model, exc.code, (exc.message or "")[:300])
                 if exc.code == 429:
                     error = LlmError("The AI service is rate-limited right now. Try again in a minute.")
                     break
@@ -76,8 +88,9 @@ def generate(system: str, contents: list[types.Content]) -> LlmResult:
                 if attempt == 0:
                     continue
                 break
-            text = (res.text or "").strip()
-            if not text:
+            calls = list(res.function_calls or [])
+            text = "".join(p.text for p in _parts(res) if p.text and not p.thought).strip()
+            if not text and not calls:
                 raise LlmError("The model returned an empty answer. Try rephrasing the question.")
             usage = res.usage_metadata
             return LlmResult(
@@ -86,5 +99,13 @@ def generate(system: str, contents: list[types.Content]) -> LlmResult:
                 completion_tokens=usage.candidates_token_count if usage else None,
                 latency_ms=int((time.monotonic() - start) * 1000),
                 model=model,
+                function_calls=calls,
+                content=res.candidates[0].content if res.candidates else None,
             )
     raise error
+
+
+def _parts(res) -> list[types.Part]:
+    if not res.candidates or not res.candidates[0].content:
+        return []
+    return res.candidates[0].content.parts or []

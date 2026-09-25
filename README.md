@@ -34,6 +34,19 @@ that expand to the source file, section and snippet. When the documents don't co
 answers "I don't know based on the documents in this workspace." Failed answers keep the question
 and can be retried.
 
+The assistant can also **call tools**. Each call is validated against a schema and recorded in the
+**Tool log** tab:
+
+| Tool | What it does | Offered when |
+|---|---|---|
+| `search_documents` | Extra search of the active workspace (multi-step answers) | always |
+| `list_tasks` | Lists this workspace's tasks | always |
+| `save_task` | Saves a task, shown in the **Tasks** tab | your message mentions a task / reminder |
+| `send_discord_summary` | Posts to the configured Discord webhook | your message mentions Discord / post / send |
+
+Try: *"Save a task to review the deploy runbook by Friday"*, then *"List my open tasks and post a
+summary to Discord"*.
+
 Tests: `npm run test:api`. Add `LIVE_TESTS=1` to also run the end-to-end isolation test against
 real Gemini embeddings.
 

@@ -61,7 +61,30 @@ export type Message = {
   status: "pending" | "done" | "failed";
   error: string | null;
   citations: Citation[];
+  tools?: { name: string; status: "ok" | "rejected" | "error"; error: string | null }[];
   created_at: string;
 };
 
 export type Conversation = { id: string; title: string; updated_at: string };
+
+export type Task = {
+  id: string;
+  title: string;
+  notes: string | null;
+  due_date: string | null;
+  status: "open" | "done";
+  source_message_id: string | null;
+  created_at: string;
+};
+
+export type ToolCall = {
+  id: string;
+  message_id: string | null;
+  name: string;
+  args: unknown;
+  status: "ok" | "rejected" | "error";
+  result: unknown;
+  error: string | null;
+  latency_ms: number;
+  created_at: string;
+};

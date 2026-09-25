@@ -3,9 +3,10 @@
 Flow per question:
   1. Persist the user's message and a 'pending' assistant message (nothing is lost if the LLM fails).
   2. Retrieve from the active workspace only; keep chunks above RELEVANCE_FLOOR.
-  3. Nothing relevant → answer "I don't know" without calling the LLM at all.
-  4. Otherwise ask the LLM to answer from the sources, then keep only citations that point at
-     chunks we supplied.
+  3. Nothing relevant and no tool requested → answer "I don't know" without calling the LLM.
+  4. Otherwise run the tool loop: the model answers from the sources or asks for tools; each call
+     is validated and executed by tools.execute and the result goes back to the model, up to
+     MAX_STEPS turns. Only citations that point at chunks we supplied are kept.
   5. Mark the assistant message 'done', or 'failed' with a user-safe reason (retryable).
 """
 
@@ -20,20 +21,18 @@ from google.genai import types
 from pydantic import BaseModel, Field
 from psycopg.types.json import Jsonb
 
-from . import llm
+from . import llm, tools
 from .auth import WorkspaceContext, workspace_context
 from .db import get_conn
 from .embeddings import EmbeddingError
 from .prompts import I_DONT_KNOW, SYSTEM_PROMPT, extract_citations, strip_citations, user_turn
-from .retrieval import RetrievedChunk, retrieve
+from .retrieval import RELEVANCE_FLOOR, RetrievedChunk, retrieve
 
-# Gemini embedding similarity for on-topic chunks lands around 0.7-0.8; unrelated text in the same
-# language scores ~0.5-0.6 (measured in tests/test_live_isolation.py). Chunks below the floor are
-# not shown to the model; the model itself still says "I don't know" for borderline matches.
-RELEVANCE_FLOOR = 0.6
 RETRIEVE_K = 8
 MAX_SOURCES = 6
 HISTORY_MESSAGES = 6
+MAX_STEPS = 5            # model turns per answer (each may request tools)
+MAX_TOOL_CALLS = 8       # tool executions per answer
 STALE_PENDING = "2 minutes"  # a 'pending' answer older than this is assumed dead (e.g. timeout)
 
 router = APIRouter(prefix="/api/py/workspaces/{workspace_id}", tags=["chat"])
@@ -49,6 +48,7 @@ class MessageOut(BaseModel):
     status: str
     error: str | None
     citations: list[dict[str, Any]]
+    tools: list[dict[str, Any]] = []
     created_at: datetime
 
 
@@ -69,7 +69,10 @@ class ChatOut(BaseModel):
     assistant_message: MessageOut
 
 
-_MESSAGE_COLS = "id, role, content, status, error, citations, created_at"
+_MESSAGE_COLS = """id, role, content, status, error, citations, created_at,
+    coalesce((select json_agg(json_build_object('name', t.name, 'status', t.status, 'error', t.error)
+                              order by t.created_at)
+              from tool_calls t where t.message_id = messages.id), '[]') as tools"""
 
 
 def _message(conn: psycopg.Connection, ctx: WorkspaceContext, message_id: UUID) -> MessageOut:
@@ -222,22 +225,42 @@ def answer(conn: psycopg.Connection, ctx: WorkspaceContext, conversation_id: UUI
     sources = [h for h in hits if h.similarity >= RELEVANCE_FLOOR][:MAX_SOURCES]
     _record_retrieval(conn, ctx, message_id, question, hits, sources, int((time.monotonic() - start) * 1000))
 
-    if not sources:
+    if not sources and not tools.wants_tools(question):
         _finish(conn, message_id, content=I_DONT_KNOW)
         return
 
+    offered = tools.offered_tools(question)
+    tool_ctx = tools.ToolContext(conn, ctx, message_id, sources)
     contents = _history(conn, conversation_id, message_id) + [
         types.Content(role="user", parts=[types.Part(text=user_turn(question, sources))])
     ]
-    try:
-        result = llm.generate(SYSTEM_PROMPT, contents)
-    except llm.LlmError as exc:
-        _record_llm(conn, ctx, message_id, None, error=str(exc), latency_ms=int((time.monotonic() - start) * 1000))
-        _finish(conn, message_id, error=str(exc))
-        return
-    _record_llm(conn, ctx, message_id, result)
+    calls_made = 0
+    text = "I couldn't finish that request in the allowed number of steps. Try a simpler request."
+    for _ in range(MAX_STEPS):
+        try:
+            result = llm.generate(SYSTEM_PROMPT, contents, tools.declarations(offered))
+        except llm.LlmError as exc:
+            _record_llm(conn, ctx, message_id, None, error=str(exc), latency_ms=int((time.monotonic() - start) * 1000))
+            _finish(conn, message_id, error=str(exc))
+            return
+        _record_llm(conn, ctx, message_id, result)
+        if not result.function_calls:
+            text = result.text
+            break
 
-    text, citations = extract_citations(result.text, sources)
+        contents.append(result.content)
+        responses = []
+        for call in result.function_calls:
+            calls_made += 1
+            if calls_made > MAX_TOOL_CALLS:
+                out = tools.reject(tool_ctx, call.name or "", call.args, "Tool call limit reached for this answer")
+            else:
+                out = tools.execute(tool_ctx, call.name or "", call.args, offered)
+            responses.append(types.Part.from_function_response(name=call.name or "unknown", response=out))
+        contents.append(types.Content(role="user", parts=responses))
+
+    # tool_ctx.sources may have grown through search_documents; citations can point at those too.
+    text, citations = extract_citations(text, tool_ctx.sources)
     _finish(conn, message_id, content=text, citations=citations)
 
 
