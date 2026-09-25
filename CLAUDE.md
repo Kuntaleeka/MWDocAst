@@ -43,5 +43,8 @@ The full design lives in `Implementation_Plan.md`. Read it before starting a pha
   back after tool calls (thought signatures).
 
 ## Working style
+- Fakes prove our own logic, not an external service's behaviour. Anything that depends on Gemini,
+  Supabase Storage/Auth or Discord gets at least one real call (a live script or `LIVE_TESTS=1`)
+  before it's reported as working.
 - Build one phase per commit/PR, as in the plan's §9.
 - Keep Python dependencies lean (Vercel's 250 MB bundle limit). No LangChain or torch.
