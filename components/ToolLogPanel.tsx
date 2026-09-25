@@ -1,17 +1,17 @@
 "use client";
 
+import { Activity, ChevronRight, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { apiFetch, type ToolCall } from "@/lib/api";
+import { cn, EmptyState, ErrorNote, Pill, Spinner, type Tone } from "./ui";
 
-const STATUS_STYLE: Record<ToolCall["status"], string> = {
-  ok: "bg-green-600/15 text-green-700 dark:text-green-400",
-  rejected: "bg-amber-500/15 text-amber-700 dark:text-amber-400",
-  error: "bg-red-600/15 text-red-700 dark:text-red-400",
-};
+const STATUS_TONE: Record<ToolCall["status"], Tone> = { ok: "success", rejected: "warning", error: "danger" };
+const FILTERS = ["all", "ok", "rejected", "error"] as const;
 
 export function ToolLogPanel({ workspaceId }: { workspaceId: string }) {
   const [calls, setCalls] = useState<ToolCall[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [filter, setFilter] = useState<(typeof FILTERS)[number]>("all");
 
   const refresh = useCallback(() => {
     apiFetch<ToolCall[]>(`/workspaces/${workspaceId}/tool-calls`)
@@ -21,34 +21,63 @@ export function ToolLogPanel({ workspaceId }: { workspaceId: string }) {
 
   useEffect(refresh, [refresh]);
 
+  const shown = calls?.filter((c) => filter === "all" || c.status === filter) ?? [];
+
   return (
-    <section className="flex flex-col gap-3">
-      <div className="flex items-center justify-between">
-        <h2 className="text-lg font-semibold">Tool log</h2>
-        <button onClick={refresh} className="text-sm underline">
-          Refresh
+    <div className="flex flex-col gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex gap-1 rounded-lg bg-subtle p-1" role="tablist" aria-label="Filter by status">
+          {FILTERS.map((f) => (
+            <button
+              key={f}
+              role="tab"
+              aria-selected={filter === f}
+              onClick={() => setFilter(f)}
+              className={cn(
+                "rounded-md px-2.5 py-1 text-xs font-medium capitalize transition",
+                filter === f ? "bg-card shadow-sm" : "text-muted hover:text-foreground",
+              )}
+            >
+              {f}
+              {calls && f !== "all" && (
+                <span className="ml-1 text-muted">{calls.filter((c) => c.status === f).length}</span>
+              )}
+            </button>
+          ))}
+        </div>
+        <button onClick={refresh} className="btn btn-ghost px-2.5 py-1.5">
+          <RefreshCw className="size-3.5" aria-hidden /> Refresh
         </button>
       </div>
-      <p className="text-xs opacity-60">
-        Every tool call the model requested in this workspace, including ones that were rejected
-        (unknown tool, invalid arguments, or not requested by the user).
-      </p>
-      {error && <p className="text-sm text-red-600">{error}</p>}
-      {calls?.length === 0 && <p className="text-sm opacity-70">No tool calls yet.</p>}
-      {calls && calls.length > 0 && (
-        <ul className="divide-y divide-black/10 rounded border border-black/10 dark:divide-white/10 dark:border-white/10">
-          {calls.map((c) => (
-            <li key={c.id} className="px-3 py-2 text-sm">
-              <details>
-                <summary className="flex cursor-pointer flex-wrap items-center gap-2">
-                  <span className="font-mono">{c.name}</span>
-                  <span className={`rounded px-2 py-0.5 text-xs ${STATUS_STYLE[c.status]}`}>{c.status}</span>
-                  <span className="text-xs opacity-60">
+
+      {error && <ErrorNote>{error}</ErrorNote>}
+      {!calls && !error && (
+        <p className="flex items-center gap-2 text-sm text-muted">
+          <Spinner /> Loading…
+        </p>
+      )}
+      {calls && shown.length === 0 && (
+        <div className="card">
+          <EmptyState icon={<Activity className="size-5" />} title={calls.length ? "Nothing matches this filter" : "No tool calls yet"}>
+            Calls appear here when the assistant saves a task, lists tasks, searches documents or posts to Discord.
+          </EmptyState>
+        </div>
+      )}
+      {shown.length > 0 && (
+        <ul className="card divide-y divide-border">
+          {shown.map((c) => (
+            <li key={c.id}>
+              <details className="group">
+                <summary className="flex cursor-pointer list-none flex-wrap items-center gap-3 px-4 py-3 text-sm hover:bg-subtle/60 [&::-webkit-details-marker]:hidden">
+                  <ChevronRight className="size-4 text-muted transition group-open:rotate-90" aria-hidden />
+                  <span className="font-mono font-medium">{c.name}</span>
+                  <Pill tone={STATUS_TONE[c.status]}>{c.status}</Pill>
+                  <span className="ml-auto text-xs text-muted">
                     {new Date(c.created_at).toLocaleString()} · {c.latency_ms} ms
                   </span>
-                  {c.error && <span className="w-full text-xs text-red-600">{c.error}</span>}
+                  {c.error && <span className="w-full pl-7 text-xs text-rose-600">{c.error}</span>}
                 </summary>
-                <div className="mt-2 grid gap-2 text-xs md:grid-cols-2">
+                <div className="grid gap-3 px-4 pb-4 pl-11 text-xs md:grid-cols-2">
                   <Json label="Arguments" value={c.args} />
                   <Json label="Result" value={c.result} />
                 </div>
@@ -57,15 +86,15 @@ export function ToolLogPanel({ workspaceId }: { workspaceId: string }) {
           ))}
         </ul>
       )}
-    </section>
+    </div>
   );
 }
 
 function Json({ label, value }: { label: string; value: unknown }) {
   return (
     <div className="min-w-0">
-      <p className="mb-1 opacity-60">{label}</p>
-      <pre className="max-h-60 overflow-auto rounded bg-black/5 p-2 dark:bg-white/5">
+      <p className="mb-1 font-medium text-muted">{label}</p>
+      <pre className="scroll-thin max-h-60 overflow-auto rounded-lg border border-border bg-subtle p-3 font-mono">
         {value == null ? "—" : JSON.stringify(value, null, 2)}
       </pre>
     </div>

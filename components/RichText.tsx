@@ -50,7 +50,7 @@ function inline(text: string, byLabel: Map<string, Citation>): ReactNode {
       return <strong key={i}>{part.slice(2, -2)}</strong>;
     if (part.startsWith("`") && part.endsWith("`") && part.length > 2)
       return (
-        <code key={i} className="rounded bg-black/10 px-1 text-[0.85em] dark:bg-white/15">
+        <code key={i} className="rounded-md bg-subtle px-1.5 py-0.5 font-mono text-[0.85em]">
           {part.slice(1, -1)}
         </code>
       );
@@ -60,7 +60,7 @@ function inline(text: string, byLabel: Map<string, Citation>): ReactNode {
         <sup
           key={i}
           title={`${c.filename}${c.section ? ` § ${c.section}` : ""}`}
-          className="mx-0.5 cursor-help rounded bg-black/10 px-1 font-mono text-[0.65rem] dark:bg-white/15"
+          className="mx-0.5 cursor-help rounded-md bg-accent-soft px-1 py-px font-mono text-[0.65rem] font-semibold text-accent"
         >
           {c.label}
         </sup>

@@ -1,10 +1,12 @@
 "use client";
 
+import { LogOut } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 
-export function SignOutButton() {
+/** Signed-in user's email plus a sign-out button. `compact` hides the email (mobile header). */
+export function SignOutButton({ compact = false }: { compact?: boolean }) {
   const router = useRouter();
   const [email, setEmail] = useState<string | null>(null);
   useEffect(() => {
@@ -12,18 +14,27 @@ export function SignOutButton() {
       .auth.getSession()
       .then(({ data }) => setEmail(data.session?.user.email ?? null));
   }, []);
+
+  async function signOut() {
+    await createClient().auth.signOut();
+    router.replace("/login");
+    router.refresh();
+  }
+
   return (
-    <div className="flex items-center gap-3">
-      {email && <span className="text-xs opacity-60">{email}</span>}
-      <button
-        className="text-sm underline"
-        onClick={async () => {
-          await createClient().auth.signOut();
-          router.replace("/login");
-          router.refresh();
-        }}
-      >
-        Sign out
+    <div className="flex min-w-0 items-center gap-2.5">
+      {!compact && email && (
+        <>
+          <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-subtle text-xs font-semibold uppercase text-muted">
+            {email[0]}
+          </span>
+          <span className="min-w-0 flex-1 truncate text-sm text-muted" title={email}>
+            {email}
+          </span>
+        </>
+      )}
+      <button onClick={signOut} className="btn-icon" title="Sign out" aria-label="Sign out">
+        <LogOut className="size-4" />
       </button>
     </div>
   );

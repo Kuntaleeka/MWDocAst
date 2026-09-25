@@ -1,9 +1,17 @@
 "use client";
 
+import { ArrowRight } from "lucide-react";
 import { useState } from "react";
 import { apiFetch, type Workspace } from "@/lib/api";
+import { Spinner } from "./ui";
 
-export function CreateWorkspaceForm({ onCreated }: { onCreated: (ws: Workspace) => void }) {
+export function CreateWorkspaceForm({
+  onCreated,
+  compact = false,
+}: {
+  onCreated: (ws: Workspace) => void;
+  compact?: boolean;
+}) {
   const [name, setName] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -27,22 +35,23 @@ export function CreateWorkspaceForm({ onCreated }: { onCreated: (ws: Workspace) 
   }
 
   return (
-    <form onSubmit={submit} className="flex flex-wrap items-center gap-2">
-      <input
-        className="rounded border border-black/20 bg-transparent px-2 py-1 text-sm dark:border-white/20"
-        placeholder="Workspace name"
-        maxLength={80}
-        required
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-      />
-      <button
-        disabled={busy}
-        className="rounded bg-foreground px-3 py-1 text-sm text-background disabled:opacity-50"
-      >
-        Create
-      </button>
-      {error && <span className="text-sm text-red-600">{error}</span>}
+    <form onSubmit={submit} className="flex w-full flex-col gap-2">
+      <div className="flex gap-2">
+        <input
+          className={compact ? "input py-1.5" : "input"}
+          placeholder="e.g. Acme HR"
+          aria-label="Workspace name"
+          maxLength={80}
+          required
+          autoFocus
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+        />
+        <button disabled={busy || !name.trim()} className={`btn btn-primary ${compact ? "px-2.5 py-1.5" : ""}`}>
+          {busy ? <Spinner /> : compact ? <ArrowRight className="size-4" aria-label="Create" /> : "Create"}
+        </button>
+      </div>
+      {error && <span className="text-xs text-rose-600">{error}</span>}
     </form>
   );
 }

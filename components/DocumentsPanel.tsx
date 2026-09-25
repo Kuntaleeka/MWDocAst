@@ -1,25 +1,28 @@
 "use client";
 
+import { CircleCheck, CircleX, FileText, RotateCw, Trash2, UploadCloud } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { apiFetch, type DocumentInfo } from "@/lib/api";
 import { createClient } from "@/lib/supabase/client";
+import { cn, EmptyState, ErrorNote, Pill, Spinner, type Tone } from "./ui";
 
 type UploadRow = { name: string; state: "uploading" | "processing" | "done" | "error"; note?: string };
 
 const ACCEPT = ".pdf,.md,.markdown,.txt";
 const MAX_BYTES = 10 * 1024 * 1024;
 
-const STATUS_STYLE: Record<DocumentInfo["status"], string> = {
-  ready: "bg-green-600/15 text-green-700 dark:text-green-400",
-  processing: "bg-amber-500/15 text-amber-700 dark:text-amber-400",
-  failed: "bg-red-600/15 text-red-700 dark:text-red-400",
-};
+const STATUS_TONE: Record<DocumentInfo["status"], Tone> = { ready: "success", processing: "warning", failed: "danger" };
+
+function formatSize(bytes: number) {
+  return bytes < 1024 * 1024 ? `${Math.max(1, Math.round(bytes / 1024))} KB` : `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
 
 export function DocumentsPanel({ workspaceId }: { workspaceId: string }) {
   const base = `/workspaces/${workspaceId}/documents`;
   const [docs, setDocs] = useState<DocumentInfo[] | null>(null);
   const [uploads, setUploads] = useState<UploadRow[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [dragging, setDragging] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const refresh = useCallback(() => {
@@ -70,7 +73,7 @@ export function DocumentsPanel({ workspaceId }: { workspaceId: string }) {
       });
       setRow(i, {
         state: doc.status === "failed" ? "error" : "done",
-        note: doc.duplicate ? "Already uploaded, no changes" : (doc.error ?? undefined),
+        note: doc.duplicate ? "Already uploaded, no changes" : (doc.error ?? `${doc.chunk_count} chunks`),
       });
     } catch (err) {
       setRow(i, { state: "error", note: err instanceof Error ? err.message : "Upload failed" });
@@ -100,66 +103,126 @@ export function DocumentsPanel({ workspaceId }: { workspaceId: string }) {
   }
 
   return (
-    <section className="flex flex-col gap-3">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 className="text-lg font-semibold">Documents</h2>
-        <label className="cursor-pointer rounded bg-foreground px-3 py-1 text-sm text-background">
-          Upload
-          <input
-            ref={inputRef}
-            type="file"
-            accept={ACCEPT}
-            multiple
-            className="hidden"
-            onChange={(e) => onFiles(e.target.files)}
-          />
-        </label>
-      </div>
-      <p className="text-xs opacity-60">PDF, Markdown or text, up to 10 MB each.</p>
+    <div className="flex flex-col gap-6">
+      <label
+        onDragOver={(e) => {
+          e.preventDefault();
+          setDragging(true);
+        }}
+        onDragLeave={() => setDragging(false)}
+        onDrop={(e) => {
+          e.preventDefault();
+          setDragging(false);
+          onFiles(e.dataTransfer.files);
+        }}
+        className={cn(
+          "flex cursor-pointer flex-col items-center gap-3 rounded-xl border-2 border-dashed px-6 py-10 text-center transition",
+          dragging ? "border-accent bg-accent-soft" : "border-border bg-card hover:border-accent/50 hover:bg-subtle",
+        )}
+      >
+        <span className="flex size-11 items-center justify-center rounded-xl bg-accent-soft text-accent">
+          <UploadCloud className="size-5" aria-hidden />
+        </span>
+        <span className="text-sm">
+          <span className="font-medium text-accent">Choose files</span> or drag them here
+        </span>
+        <span className="text-xs text-muted">PDF, Markdown or text · up to 10 MB each</span>
+        <input
+          ref={inputRef}
+          type="file"
+          accept={ACCEPT}
+          multiple
+          className="sr-only"
+          onChange={(e) => onFiles(e.target.files)}
+        />
+      </label>
 
       {uploads.length > 0 && (
-        <ul className="flex flex-col gap-1 text-sm">
+        <ul className="card divide-y divide-border">
           {uploads.map((u, i) => (
-            <li key={i} className="flex flex-wrap gap-2">
-              <span className="font-mono">{u.name}</span>
-              <span className={u.state === "error" ? "text-red-600" : "opacity-70"}>
-                {u.state === "uploading" && "uploading…"}
-                {u.state === "processing" && "chunking & embedding…"}
-                {u.state === "done" && "✓"}
-                {u.state === "error" && "failed"}
+            <li key={i} className="flex items-center gap-3 px-4 py-2.5 text-sm">
+              {u.state === "done" ? (
+                <CircleCheck className="size-4 text-emerald-600" aria-hidden />
+              ) : u.state === "error" ? (
+                <CircleX className="size-4 text-rose-600" aria-hidden />
+              ) : (
+                <Spinner className="text-accent" />
+              )}
+              <span className="min-w-0 flex-1 truncate">{u.name}</span>
+              <span className={cn("text-xs", u.state === "error" ? "text-rose-600" : "text-muted")}>
+                {u.state === "uploading" && "Uploading…"}
+                {u.state === "processing" && "Chunking & embedding…"}
+                {(u.state === "done" || u.state === "error") && (u.note ?? (u.state === "done" ? "Done" : "Failed"))}
               </span>
-              {u.note && <span className="opacity-70">{u.note}</span>}
             </li>
           ))}
         </ul>
       )}
 
-      {loadError && <p className="text-sm text-red-600">{loadError}</p>}
-      {docs && docs.length === 0 && <p className="text-sm opacity-70">No documents yet.</p>}
-      {docs && docs.length > 0 && (
-        <ul className="divide-y divide-black/10 rounded border border-black/10 dark:divide-white/10 dark:border-white/10">
-          {docs.map((d) => (
-            <li key={d.id} className="flex flex-wrap items-center gap-3 px-3 py-2 text-sm">
-              <span className="min-w-0 flex-1 truncate font-medium" title={d.filename}>
-                {d.filename}
-              </span>
-              <span className={`rounded px-2 py-0.5 text-xs ${STATUS_STYLE[d.status]}`}>{d.status}</span>
-              <span className="text-xs opacity-60">
-                {d.chunk_count} chunks · {(d.size_bytes / 1024).toFixed(0)} KB
-              </span>
-              {d.status === "failed" && (
-                <button className="text-xs underline" onClick={() => retry(d.id)}>
-                  Retry
-                </button>
-              )}
-              <button className="text-xs underline opacity-60" onClick={() => remove(d)}>
-                Delete
-              </button>
-              {d.error && <p className="w-full text-xs text-red-600">{d.error}</p>}
-            </li>
-          ))}
-        </ul>
-      )}
-    </section>
+      <section className="flex flex-col gap-3">
+        <div className="flex items-baseline justify-between">
+          <h2 className="font-semibold tracking-tight">In this workspace</h2>
+          {docs && docs.length > 0 && (
+            <span className="text-xs text-muted">
+              {docs.length} document{docs.length === 1 ? "" : "s"} ·{" "}
+              {docs.reduce((n, d) => n + d.chunk_count, 0)} chunks
+            </span>
+          )}
+        </div>
+        {loadError && <ErrorNote>{loadError}</ErrorNote>}
+        {!docs && !loadError && (
+          <p className="flex items-center gap-2 text-sm text-muted">
+            <Spinner /> Loading…
+          </p>
+        )}
+        {docs?.length === 0 && (
+          <div className="card">
+            <EmptyState icon={<FileText className="size-5" />} title="No documents yet">
+              Upload a file above. The assistant only answers from documents in this workspace.
+            </EmptyState>
+          </div>
+        )}
+        {docs && docs.length > 0 && (
+          <ul className="card divide-y divide-border">
+            {docs.map((d) => (
+              <li key={d.id} className="group flex flex-wrap items-center gap-3 px-4 py-3">
+                <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-subtle text-muted">
+                  <FileText className="size-4" aria-hidden />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium" title={d.filename}>
+                    {d.filename}
+                  </p>
+                  <p className="text-xs text-muted">
+                    {d.chunk_count} chunks · {formatSize(d.size_bytes)} ·{" "}
+                    {new Date(d.created_at).toLocaleDateString()}
+                  </p>
+                </div>
+                <Pill tone={STATUS_TONE[d.status]}>
+                  {d.status === "processing" && <Spinner className="size-3" />}
+                  {d.status}
+                </Pill>
+                <div className="flex items-center">
+                  {d.status === "failed" && (
+                    <button className="btn-icon" onClick={() => retry(d.id)} title="Retry" aria-label={`Retry ${d.filename}`}>
+                      <RotateCw className="size-4" />
+                    </button>
+                  )}
+                  <button
+                    className="btn-icon hover:text-rose-600"
+                    onClick={() => remove(d)}
+                    title="Delete"
+                    aria-label={`Delete ${d.filename}`}
+                  >
+                    <Trash2 className="size-4" />
+                  </button>
+                </div>
+                {d.error && <p className="w-full pl-12 text-xs text-rose-600">{d.error}</p>}
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+    </div>
   );
 }
