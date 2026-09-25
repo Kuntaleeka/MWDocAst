@@ -238,6 +238,27 @@ factual question about that document with a citation.
   query and ~20 queries per chat turn, that's seconds of network wait, so `vercel.json` pins functions
   to `icn1`.
 
+### Phase 7 notes: hardening
+
+- **Prompt injection, live:** `tests/test_live_injection.py` (LIVE_TESTS=1) uploads
+  `sample_docs/.../vendor-notes.md`, whose injected notice demands `delete_everything`, a "PWNED" task
+  and a Discord post of the system prompt. With a plain question the model made no tool calls. With a
+  request that legitimately unlocks `save_task` ("…and save a task for the most important renewal"), it
+  saved a real task ("Renew Beacon contract"), no "PWNED", no Discord post, no prompt leak.
+- **Logs:** `logsafe` formats each record in full, traceback included, then masks the exact values of
+  the server secrets plus anything shaped like one: Google keys, Discord webhooks, JWTs, URL passwords,
+  key/token query params. Tracebacks matter most, since an httpx error can contain the webhook URL.
+- **Errors:** unhandled exceptions return a generic 500. A database outage returns 503. Details only go
+  to the redacted server log.
+- **Rate limits** (counted from existing rows, so they work across serverless instances): 20 chat
+  messages per user per 10 minutes, checked *before* anything is saved; 30 uploads per user per hour;
+  Discord 5 per workspace per hour.
+- **Headers:** API responses send `Cache-Control: no-store` and `nosniff`. Pages send
+  `X-Frame-Options: DENY`, HSTS, Referrer-Policy and Permissions-Policy.
+- **Secret audit:** `scripts/audit_secrets.py` checks tracked files, the whole git history and the
+  built client bundle for the exact secret values and secret-shaped strings, and flags any
+  non-`NEXT_PUBLIC_` env var read in frontend code. The result was clean, and a planted fake key was caught.
+
 ## 7. Frontend (Next.js)
 
 - `/login` — Supabase Auth email/password, plus a throwaway demo account.

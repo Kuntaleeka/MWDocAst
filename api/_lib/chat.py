@@ -25,7 +25,7 @@ from google.genai import types
 from pydantic import BaseModel, Field
 from psycopg.types.json import Jsonb
 
-from . import llm, tools
+from . import limits, llm, tools
 from .auth import WorkspaceContext, workspace_context
 from .db import connect, get_conn
 from .embeddings import EmbeddingError
@@ -125,6 +125,7 @@ def _start_turn(conn: psycopg.Connection, ctx: WorkspaceContext, body: ChatIn) -
     question = body.message.strip()
     if not question:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Message is empty")
+    limits.check_chat(conn, ctx.user.id)
     with conn.transaction():
         if body.conversation_id:
             _conversation_or_404(conn, ctx, body.conversation_id)

@@ -8,7 +8,7 @@ import psycopg
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
-from . import storage
+from . import limits, storage
 from .auth import WorkspaceContext, workspace_context
 from .db import get_conn
 from .ingest import DOCUMENT_COLUMNS, IngestError, claim_for_reprocessing, ingest_upload, process_document
@@ -75,7 +75,8 @@ def list_documents(ctx: Ctx, conn: Conn) -> list[DocumentOut]:
 
 
 @router.post("/upload-url")
-def create_upload_url(body: UploadUrlIn, ctx: Ctx) -> UploadUrlOut:
+def create_upload_url(body: UploadUrlIn, ctx: Ctx, conn: Conn) -> UploadUrlOut:
+    limits.check_upload(conn, ctx.user.id)
     try:
         ext = extension(body.filename)
     except UnsupportedDocument as exc:

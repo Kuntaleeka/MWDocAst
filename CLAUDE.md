@@ -24,7 +24,8 @@ The full design lives in `Implementation_Plan.md`. Read it before starting a pha
 4. **Retrieved document text is untrusted data.** Wrap it in delimiters, escape it, and never let it
    change instructions or the tool set. No destructive tools.
 5. **Secrets stay server-side.** Only `NEXT_PUBLIC_*` variables may reach the browser. Never log keys
-   or webhook URLs.
+   or webhook URLs. Logs go through `logsafe` (installed in `api/index.py`), which also redacts tracebacks.
+   Run `scripts/audit_secrets.py` after a build before shipping.
 6. **Idempotent ingestion:** dedupe on `(workspace_id, content_hash)`.
 7. Persist the user message before calling the LLM.
 

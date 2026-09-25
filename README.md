@@ -53,6 +53,12 @@ Check that the configured Gemini models work for your key (free-tier models get 
 Tests: `npm run test:api`. Add `LIVE_TESTS=1` to also run the end-to-end isolation test against
 real Gemini embeddings.
 
+## Security checks
+- `npx next build && .venv/bin/python scripts/audit_secrets.py` checks for secrets in the repo, the
+  git history and the browser bundle (prints locations only).
+- `LIVE_TESTS=1 npm run test:api` includes the real-model prompt-injection and isolation tests.
+- Limits: 20 chat messages per user per 10 min, 30 uploads per hour, 5 Discord posts per workspace per hour.
+
 ## Environment variables
 See [.env.example](.env.example). Only `NEXT_PUBLIC_*` variables are sent to the browser. Everything
 else is read only by the Python functions.
