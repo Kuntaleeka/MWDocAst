@@ -2,6 +2,7 @@
 
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import { DocumentsPanel } from "@/components/DocumentsPanel";
 import { SignOutButton } from "@/components/SignOutButton";
 import { WorkspaceSwitcher } from "@/components/WorkspaceSwitcher";
 import { ApiError, apiFetch, type Workspace } from "@/lib/api";
@@ -36,11 +37,10 @@ export default function WorkspaceDashboard() {
         <WorkspaceSwitcher workspaces={workspaces} activeId={active.id} />
         <SignOutButton />
       </header>
-      <main className="flex-1 p-6">
+      <main className="flex w-full max-w-4xl flex-1 flex-col gap-6 p-6">
         <h1 className="text-xl font-semibold">{active.name}</h1>
-        <p className="mt-2 text-sm opacity-70">
-          Documents, chat and the tool-call log for this workspace will appear here.
-        </p>
+        {/* key: remount on workspace switch so no state leaks between workspaces */}
+        <DocumentsPanel key={active.id} workspaceId={active.id} />
       </main>
     </div>
   );

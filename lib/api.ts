@@ -29,7 +29,18 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
     const detail = typeof body.detail === "string" ? body.detail : res.statusText;
     throw new ApiError(res.status, detail);
   }
+  if (res.status === 204) return undefined as T;
   return res.json() as Promise<T>;
 }
 
 export type Workspace = { id: string; name: string; role: string };
+
+export type DocumentInfo = {
+  id: string;
+  filename: string;
+  status: "processing" | "ready" | "failed";
+  error: string | null;
+  size_bytes: number;
+  chunk_count: number;
+  created_at: string;
+};

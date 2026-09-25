@@ -25,6 +25,9 @@ npm run dev                       # Next.js :3000 + FastAPI :8000
 
 Open http://localhost:3000 and check http://localhost:3000/api/py/health, which should return `{"status":"ok"}`.
 Sign up at /login, create a workspace, and switch between workspaces from the dashboard header.
+Upload PDF, Markdown or .txt files (10 MB max each). Each file is chunked, embedded with Gemini
+(768-dim) and stored in the shared `chunks` table, tagged with its workspace. Re-uploading the same
+file into a workspace is a no-op.
 
 Tests: `npm run test:api`
 
