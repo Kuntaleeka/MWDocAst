@@ -21,7 +21,7 @@ def main() -> None:
             " name text primary key, applied_at timestamptz not null default now())"
         )
         conn.execute("alter table public.schema_migrations enable row level security")
-        applied = {r[0] for r in conn.execute("select name from public.schema_migrations")}
+        applied = {r["name"] for r in conn.execute("select name from public.schema_migrations")}
         conn.commit()
 
         for path in sorted(MIGRATIONS.glob("*.sql")):

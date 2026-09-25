@@ -11,7 +11,7 @@ from cryptography.hazmat.primitives.asymmetric import ec
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "api"))
 
 from _lib import auth  # noqa: E402
-from _lib.config import get_settings  # noqa: E402
+from _lib.config import _load_local_env, get_settings  # noqa: E402
 
 _KEY = ec.generate_private_key(ec.SECP256R1())
 
@@ -53,7 +53,8 @@ def db_available() -> bool:
         return False
 
 
-# Settings are required at import time of the app; give tests harmless defaults if unset.
+# Load .env.local / .env first so real values win; then give tests harmless defaults if unset.
+_load_local_env()
 os.environ.setdefault("NEXT_PUBLIC_SUPABASE_URL", "https://test.supabase.co")
 os.environ.setdefault("SUPABASE_JWKS_URL", "https://test.supabase.co/auth/v1/.well-known/jwks.json")
 os.environ.setdefault("DATABASE_URL", "postgresql://invalid")
