@@ -14,7 +14,8 @@ The full design lives in `Implementation_Plan.md`. Read it before starting a pha
 ## Non-negotiable rules
 1. **Isolation:** every chunk query filters `workspace_id` inside the SQL vector query, never after it.
    Never add a per-workspace table or index. Read chunks only through `retrieval.search()` /
-   `match_chunks`, which takes the workspace from a verified `WorkspaceContext`.
+   `search_chunks`, which takes the workspace from a verified `WorkspaceContext`. Any new filter or
+   ranking path (e.g. shared documents, keyword search) must apply the same visibility filter inside the query.
 2. **Workspace ID comes from the server.** Tool executors get it from the verified request context,
    never from model output.
 3. **Validate every tool call** against its pydantic schema. Log unknown tools and bad args as

@@ -93,7 +93,7 @@ def test_hnsw_path_still_fills_k_and_stays_isolated(world):
     """Force the HNSW index (as at production scale) and show why iterative scan matters.
 
     Without it, the index returns A's ~40 nearest chunks, the workspace filter removes them all, and
-    B gets nothing back. match_chunks enables iterative scan, so B still gets its 5 chunks and no others.
+    B gets nothing back. search_chunks enables iterative scan, so B still gets its 5 chunks and no others.
     Runs in a rolled-back transaction; the dropped index is restored.
     """
     raw = """select content from chunks where workspace_id = %s

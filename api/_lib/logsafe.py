@@ -72,6 +72,9 @@ def install() -> None:
     handler.addFilter(RedactingFilter())
     root.addHandler(handler)
     root.setLevel(logging.INFO)
+    # Per-request lines from HTTP clients are noise (and a place URLs could leak); keep warnings.
+    for noisy in ("httpx", "httpcore", "google_genai"):
+        logging.getLogger(noisy).setLevel(logging.WARNING)
     # uvicorn's own handlers too (it logs errors with tracebacks outside our loggers).
     for name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
         for h in logging.getLogger(name).handlers:

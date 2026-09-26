@@ -3,6 +3,8 @@
 Looks for (a) the exact values of the server-only secrets in your env, and (b) anything shaped
 like a secret. Prints locations only, never values. Exit code 1 if anything is found.
 
+Scans tracked files, so run it after `git add` (untracked files are not checked).
+
 Usage: npx next build && .venv/bin/python scripts/audit_secrets.py
 """
 
@@ -28,6 +30,11 @@ SHAPES = {
 }
 
 
+# Deliberately fake secrets used by tests/test_hardening.py to prove log redaction. A shape match
+# containing one of these markers is a known fixture, not a leak. Keep this list tiny and explicit.
+KNOWN_FAKES = ("SuperSecretWebhookToken", "hunter2pass")
+
+
 def secret_values() -> dict[str, str]:
     _load_local_env()
     values = {name: os.environ.get(name, "") for name in SERVER_ONLY}
@@ -39,7 +46,11 @@ def secret_values() -> dict[str, str]:
 
 def scan(label: str, text: str, values: dict[str, str]) -> list[str]:
     hits = [f"{label}: value of {name}" for name, v in values.items() if v in text]
-    hits += [f"{label}: looks like a {kind}" for kind, rx in SHAPES.items() if rx.search(text)]
+    hits += [
+        f"{label}: looks like a {kind}"
+        for kind, rx in SHAPES.items()
+        if any(not any(fake in m.group(0) for fake in KNOWN_FAKES) for m in rx.finditer(text))
+    ]
     return hits
 
 

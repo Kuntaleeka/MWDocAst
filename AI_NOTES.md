@@ -22,7 +22,8 @@
 ## Key decisions and why
 
 1. **Isolation lives in the SQL vector query, and the workspace never comes from the model.**
-   `match_chunks()` filters on `workspace_id` inside the query, not after it. Its workspace argument
+   `search_chunks()` filters on `workspace_id` inside the query, not after it, in both the vector
+   and keyword halves of hybrid search. Its workspace argument
    only ever comes from a verified login-plus-membership check (`WorkspaceContext`), and no tool accepts
    a workspace ID. We also hit a real pgvector problem: an approximate-index search with a filter can
    return **zero rows** for a small workspace, because the neighbours from other workspaces fill the
@@ -88,6 +89,10 @@ anything that depends on an outside service, one real call beats a green suite o
 - A question and its pending answer got the **same timestamp** (Postgres `now()` is fixed inside a
   transaction), so chat history order was arbitrary. Caught while reviewing the history query, before
   any test failed. Fixed with `clock_timestamp()`.
+- The secret audit reported "clean" in Phase 7, but it only scans **tracked** files, and the test
+  containing deliberately fake secrets wasn't committed yet. The next run flagged them. The fakes are
+  now an explicit allowlist, the audit runs after `git add`, and a planted canary proves it still
+  catches real-looking keys.
 
 ## What I'd improve with more time
 

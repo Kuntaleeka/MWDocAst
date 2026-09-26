@@ -299,8 +299,23 @@ factual question about that document with a citation.
 - **Embedding quota:** the free tier is 100 embedding requests per minute. Retries now follow
   Gemini's requested `retryDelay`: up to 60 s for ingestion and batch jobs, 8 s for a live chat
   question. Found when the eval script itself hit the limit.
-- **Pending cleanup:** `match_chunks` (0003) is unused after this deploy. Drop it in a follow-up
-  migration once production runs this code (local and production share one database).
+- `match_chunks` (0003) was dropped in migration 0008 once production ran this code.
+
+### Phase 9 notes: wrap-up
+
+- `scripts/seed.py` creates the demo account (Supabase admin API) and loads **Acme HR** and **Orion
+  Eng** from `sample_docs/` through the real pipeline (Storage upload, then `ingest_upload`). Re-running
+  resets the password and skips identical files.
+- Checked with a real password login: Acme HR answers BLUE HERON [S1], and Orion Eng says "I don't know"
+  to the same question.
+- "What is Ledgerly?" retrieves the right section (keyword rank 1), but the model cautiously refuses,
+  because the handbook only says expenses go "through the Ledgerly app". The README uses "What app do I
+  use to submit expenses?" instead.
+- Migration 0008 drops `match_chunks`. `httpx`/`google_genai` request logs are reduced to warnings.
+- The secret audit flagged the deliberately fake secrets in `tests/test_hardening.py`. Its Phase 7
+  "clean" run had missed them because it only scans *tracked* files and the test wasn't committed yet.
+  Now there's an explicit two-item allowlist, the docstring says to run it after `git add`, and a
+  realistic canary is still caught.
 
 ## 7. Frontend (Next.js)
 
