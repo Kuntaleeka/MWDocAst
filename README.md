@@ -5,7 +5,7 @@ active workspace's documents**, cites its sources, says "I don't know" when they
 question, and can take actions through validated tool calls. Every workspace's chunks live in **one
 shared pgvector table**, and isolation is enforced inside the SQL query itself.
 
-**Live app:** <!-- TODO: replace with the production URL --> https://YOUR-APP.vercel.app
+**Live app:** https://mw-doc-ast.vercel.app
 
 **Demo login (throwaway):** `reviewer@example.com` / `DocAssist-Review-2026`
 
