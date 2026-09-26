@@ -30,7 +30,7 @@ from .auth import WorkspaceContext, workspace_context
 from .db import connect, get_conn
 from .embeddings import EmbeddingError
 from .prompts import I_DONT_KNOW, SYSTEM_PROMPT, extract_citations, strip_citations, user_turn
-from .retrieval import RELEVANCE_FLOOR, RetrievedChunk, retrieve
+from .retrieval import RetrievedChunk, retrieve
 
 RETRIEVE_K = 8
 MAX_SOURCES = 6
@@ -243,7 +243,8 @@ def _insert_message(conn, ctx: WorkspaceContext, conversation_id: UUID, role: st
 
 def _finish(conn, message_id: UUID, *, content: str = "", citations: list | None = None, error: str | None = None) -> None:
     conn.execute(
-        "update messages set status = %s, content = %s, citations = %s, error = %s where id = %s",
+        """update messages set status = %s, content = %s, citations = %s, error = %s,
+                  completed_at = clock_timestamp() where id = %s""",
         ("failed" if error else "done", content, Jsonb(citations or []), error, message_id),
     )
 
@@ -299,7 +300,7 @@ def _answer_events(conn, ctx, conversation_id, message_id, question) -> Iterator
     except EmbeddingError:
         _finish(conn, message_id, error="Couldn't search the documents right now. Try again.")
         return
-    sources = [h for h in hits if h.similarity >= RELEVANCE_FLOOR][:MAX_SOURCES]
+    sources = [h for h in hits if h.relevant][:MAX_SOURCES]
     _record_retrieval(conn, ctx, message_id, question, hits, sources, int((time.monotonic() - start) * 1000))
 
     if not sources and not tools.wants_tools(question):
@@ -370,6 +371,10 @@ def _record_retrieval(conn, ctx, message_id, query, hits: list[RetrievedChunk], 
             "filename": h.filename,
             "section": h.section,
             "similarity": round(h.similarity, 4),
+            "vector_rank": h.vector_rank,
+            "keyword_rank": h.keyword_rank,
+            "score": round(h.score, 5),
+            "source_workspace_id": str(h.source_workspace_id) if h.source_workspace_id else None,
             "used": h.chunk_id in used_ids,
             "preview": h.content[:200],
         }

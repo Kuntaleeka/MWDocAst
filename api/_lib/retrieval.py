@@ -18,6 +18,10 @@ DEFAULT_K = 8
 # language scores ~0.5-0.6 (measured in tests/test_live_isolation.py). Chunks below the floor are
 # never shown to the model; the model itself still says "I don't know" for borderline matches.
 RELEVANCE_FLOOR = 0.6
+# Hybrid: an exact-term match (top keyword ranks) is also relevant at a lower vector similarity,
+# e.g. a question naming "Ledgerly" or "orion/prod/breakglass". See scripts/eval_retrieval.py.
+KEYWORD_FLOOR = 0.5
+KEYWORD_TOP_RANKS = 2
 
 
 @dataclass(frozen=True)
@@ -28,22 +32,42 @@ class RetrievedChunk:
     section: str | None
     content: str
     similarity: float
+    vector_rank: int | None = None
+    keyword_rank: int | None = None
+    score: float = 0.0
+    source_workspace_id: UUID | None = None  # differs from the active workspace for shared documents
+
+    @property
+    def relevant(self) -> bool:
+        if self.similarity >= RELEVANCE_FLOOR:
+            return True
+        keyword_hit = self.keyword_rank is not None and self.keyword_rank <= KEYWORD_TOP_RANKS
+        return keyword_hit and self.similarity >= KEYWORD_FLOOR
 
 
 def search(
-    conn: psycopg.Connection, ctx: WorkspaceContext, embedding: list[float], k: int = DEFAULT_K
+    conn: psycopg.Connection,
+    ctx: WorkspaceContext,
+    embedding: list[float],
+    k: int = DEFAULT_K,
+    query_text: str | None = None,
+    mode: str | None = None,
 ) -> list[RetrievedChunk]:
-    # match_chunks filters on workspace_id inside the vector query (see migration 0003).
-    # The workspace comes from the verified context, never from user or model input.
+    # search_chunks filters on the workspace (plus documents explicitly shared into it) inside both
+    # the vector and keyword queries (see migration 0007). The workspace comes from the verified
+    # context, never from user or model input.
+    mode = mode or ("hybrid" if query_text else "vector")
     rows = conn.execute(
-        "select * from match_chunks(%s, %s::extensions.vector, %s)",
-        (ctx.workspace_id, to_pgvector(embedding), k),
+        "select * from search_chunks(%s, %s::extensions.vector, %s, %s, %s)",
+        (ctx.workspace_id, to_pgvector(embedding), query_text, k, mode),
     ).fetchall()
     return [RetrievedChunk(**r) for r in rows]
 
 
-def retrieve(conn: psycopg.Connection, ctx: WorkspaceContext, query: str, k: int = DEFAULT_K) -> list[RetrievedChunk]:
-    return search(conn, ctx, embed_query(query), k)
+def retrieve(
+    conn: psycopg.Connection, ctx: WorkspaceContext, query: str, k: int = DEFAULT_K, mode: str = "hybrid"
+) -> list[RetrievedChunk]:
+    return search(conn, ctx, embed_query(query), k, query_text=query, mode=mode)
 
 
 router = APIRouter(prefix="/api/py/workspaces/{workspace_id}", tags=["retrieval"])

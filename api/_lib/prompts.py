@@ -77,6 +77,7 @@ def extract_citations(text: str, chunks: list[RetrievedChunk]) -> tuple[str, lis
             "filename": by_label[l].filename,
             "section": by_label[l].section,
             "snippet": by_label[l].content[:300],
+            "source_workspace_id": str(by_label[l].source_workspace_id) if by_label[l].source_workspace_id else None,
         }
         for l in cited
     ]

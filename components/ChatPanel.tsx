@@ -3,6 +3,7 @@
 import {
   ArrowUp,
   Ban,
+  Bug,
   Check,
   ChevronDown,
   FileText,
@@ -15,6 +16,7 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { apiFetch, apiStream, type Citation, type Conversation, type Message } from "@/lib/api";
+import { DebugPanel } from "./DebugPanel";
 import { RichText } from "./RichText";
 import { cn, Pill, Spinner, type Tone } from "./ui";
 
@@ -250,7 +252,7 @@ export function ChatPanel({ workspaceId, workspaceName }: { workspaceId: string;
           ) : (
             <div className="mx-auto flex w-full max-w-3xl flex-col gap-6 px-4 py-6 md:px-6">
               {messages.map((m) => (
-                <MessageRow key={m.id} message={m} onRetry={() => retry(m.id)} />
+                <MessageRow key={m.id} message={m} workspaceId={workspaceId} onRetry={() => retry(m.id)} />
               ))}
               <div ref={bottomRef} />
             </div>
@@ -310,7 +312,16 @@ function AssistantAvatar() {
   );
 }
 
-function MessageRow({ message: m, onRetry }: { message: LiveMessage; onRetry: () => void }) {
+function MessageRow({
+  message: m,
+  workspaceId,
+  onRetry,
+}: {
+  message: LiveMessage;
+  workspaceId: string;
+  onRetry: () => void;
+}) {
+  const [debug, setDebug] = useState(false);
   if (m.role === "user") {
     return (
       <div className="ml-auto max-w-[85%] whitespace-pre-wrap rounded-2xl rounded-br-md bg-accent px-4 py-2.5 text-sm text-accent-foreground shadow-sm">
@@ -343,13 +354,25 @@ function MessageRow({ message: m, onRetry }: { message: LiveMessage; onRetry: ()
             {m.status === "pending" && <span className="ml-0.5 inline-block h-4 w-1.5 animate-pulse rounded-sm bg-accent align-middle" />}
           </div>
         )}
-        {m.citations.length > 0 && <Sources citations={m.citations} />}
+        {m.citations.length > 0 && <Sources citations={m.citations} workspaceId={workspaceId} />}
+        {m.status !== "pending" && !m.id.startsWith("tmp-") && (
+          <div className="flex flex-col gap-2">
+            <button
+              onClick={() => setDebug((d) => !d)}
+              aria-expanded={debug}
+              className="inline-flex items-center gap-1 self-start text-[0.7rem] text-muted transition hover:text-foreground"
+            >
+              <Bug className="size-3" aria-hidden /> {debug ? "Hide" : "Show"} retrieval debug
+            </button>
+            {debug && <DebugPanel workspaceId={workspaceId} messageId={m.id} />}
+          </div>
+        )}
       </div>
     </div>
   );
 }
 
-function Sources({ citations }: { citations: Citation[] }) {
+function Sources({ citations, workspaceId }: { citations: Citation[]; workspaceId: string }) {
   const [open, setOpen] = useState<string | null>(null);
   const shown = citations.find((c) => c.label === open);
   return (
@@ -372,6 +395,9 @@ function Sources({ citations }: { citations: Citation[] }) {
               {c.filename}
               {c.section && ` · ${c.section}`}
             </span>
+            {c.source_workspace_id && c.source_workspace_id !== workspaceId && (
+              <span className="rounded bg-accent-soft px-1 text-[0.6rem] font-medium text-accent">shared</span>
+            )}
             <ChevronDown className={cn("size-3 shrink-0 transition", open === c.label && "rotate-180")} aria-hidden />
           </button>
         ))}

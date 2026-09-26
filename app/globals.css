@@ -11,6 +11,7 @@
   --accent-soft: rgb(79 70 229 / 0.09);
   --accent-foreground: #ffffff;
   --ring: rgb(79 70 229 / 0.35);
+  --chart: #4f46e5; /* validated: dataviz validate_palette --mode light */
 }
 
 @media (prefers-color-scheme: dark) {
@@ -25,6 +26,7 @@
     --accent-soft: rgb(129 140 248 / 0.14);
     --accent-foreground: #0b0b0f;
     --ring: rgb(129 140 248 / 0.4);
+    --chart: #7a80f5; /* #818cf8 fails the dark lightness band (L 0.68) */
   }
 }
 
@@ -39,6 +41,7 @@
   --color-accent-soft: var(--accent-soft);
   --color-accent-foreground: var(--accent-foreground);
   --color-ring: var(--ring);
+  --color-chart: var(--chart);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }

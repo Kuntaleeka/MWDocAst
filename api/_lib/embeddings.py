@@ -31,17 +31,37 @@ def _normalise(v: list[float]) -> list[float]:
     return [x / norm for x in v]
 
 
-def _embed_batch(texts: list[str], task_type: str, attempts: int = 4) -> list[list[float]]:
+def _retry_delay(exc: errors.APIError) -> float | None:
+    """Seconds Gemini asks us to wait (RetryInfo.retryDelay, e.g. "17s"), if it said."""
+    details = (exc.details or {}).get("error", {}).get("details", []) if isinstance(exc.details, dict) else []
+    for d in details:
+        delay = d.get("retryDelay") if isinstance(d, dict) else None
+        if isinstance(delay, str) and delay.endswith("s"):
+            try:
+                return float(delay[:-1])
+            except ValueError:
+                return None
+    return None
+
+
+def _embed_batch(texts: list[str], task_type: str, max_wait: float = 60.0) -> list[list[float]]:
+    """Embed with retries. Waits follow Gemini's requested retry delay on 429 (the free tier is
+    100 embedding requests per minute), capped by `max_wait` seconds in total. Background work
+    (ingestion) can afford a minute; a user waiting on a chat answer can't."""
     config = types.EmbedContentConfig(task_type=task_type, output_dimensionality=DIMENSIONS)
-    for attempt in range(attempts):
+    waited = 0.0
+    attempt = 0
+    while True:
         try:
             res = _client().models.embed_content(model=MODEL, contents=texts, config=config)
             return [_normalise(e.values) for e in res.embeddings]
         except errors.APIError as exc:
-            if exc.code not in _RETRYABLE or attempt == attempts - 1:
+            delay = (_retry_delay(exc) or 2**attempt) + random.random()
+            if exc.code not in _RETRYABLE or waited + delay > max_wait:
                 raise EmbeddingError(f"Embedding failed ({exc.code})") from exc
-            time.sleep(2**attempt + random.random())
-    raise AssertionError("unreachable")
+            time.sleep(delay)
+            waited += delay
+            attempt += 1
 
 
 def embed_documents(texts: list[str]) -> list[list[float]]:
@@ -52,7 +72,15 @@ def embed_documents(texts: list[str]) -> list[list[float]]:
 
 
 def embed_query(text: str) -> list[float]:
-    return _embed_batch([text], "RETRIEVAL_QUERY")[0]
+    return _embed_batch([text], "RETRIEVAL_QUERY", max_wait=8.0)[0]
+
+
+def embed_queries(texts: list[str]) -> list[list[float]]:
+    """Many queries in one request each BATCH_SIZE (for evaluation; stays under per-minute quotas)."""
+    out: list[list[float]] = []
+    for i in range(0, len(texts), BATCH_SIZE):
+        out.extend(_embed_batch(texts[i : i + BATCH_SIZE], "RETRIEVAL_QUERY"))
+    return out
 
 
 def to_pgvector(v: list[float]) -> str:

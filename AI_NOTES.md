@@ -101,5 +101,6 @@ anything that depends on an outside service, one real call beats a green suite o
   limit.
 - **Test speed:** each request opens a new connection to the Supabase pooler, so the suite takes about
   6 minutes. Transaction-scoped test fixtures and connection reuse would fix that.
-- **Stretch goals still ahead:** retrieval-debug view (the data is already recorded per answer),
-  observability dashboard, and opt-in cross-workspace sharing.
+- **Retrieval evaluation at scale:** hybrid search is measured on a 12-section sample corpus, where
+  vector ranking was already perfect and hybrid's only gain was exact terms ("Ledgerly"). A larger,
+  messier corpus is needed to tune the RRF weights and the keyword rule properly.

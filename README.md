@@ -53,6 +53,16 @@ Check that the configured Gemini models work for your key (free-tier models get 
 Tests: `npm run test:api`. Add `LIVE_TESTS=1` to also run the end-to-end isolation test against
 real Gemini embeddings.
 
+## Stretch features
+- **Hybrid search** (keyword + vector, fused, workspace-filtered on both sides). Compare modes on
+  the sample docs with `.venv/bin/python scripts/eval_retrieval.py`.
+- **Retrieval debug:** under any answer, "Show retrieval debug" lists the workspace and the chunks it
+  drew on (similarity, vector and keyword rank, used or not) with an isolation check.
+- **Insights tab:** answer latency (p50/p95), retrieval hit rate, tokens per model, tool outcomes.
+- **Opt-in sharing:** in Documents, the share icon makes a document read-only visible in another
+  workspace you own. It shows as "Shared from …" there and can be removed from either side.
+- **Streaming** answers and **multi-step tool use** (e.g. list tasks, then post to Discord).
+
 ## Security checks
 - `npx next build && .venv/bin/python scripts/audit_secrets.py` checks for secrets in the repo, the
   git history and the browser bundle (prints locations only).

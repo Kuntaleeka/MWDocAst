@@ -20,6 +20,11 @@ Ctx = Annotated[WorkspaceContext, Depends(workspace_context)]
 Conn = Annotated[psycopg.Connection, Depends(get_conn)]
 
 
+class WorkspaceRef(BaseModel):
+    id: UUID
+    name: str
+
+
 class DocumentOut(BaseModel):
     id: UUID
     filename: str
@@ -28,6 +33,8 @@ class DocumentOut(BaseModel):
     size_bytes: int
     chunk_count: int
     created_at: datetime
+    shared_from: WorkspaceRef | None = None  # set when the document lives in another workspace
+    shared_to: list[WorkspaceRef] = []  # workspaces this (own) document is shared into
 
 
 class IngestOut(DocumentOut):
@@ -67,11 +74,65 @@ def _get_document(conn: psycopg.Connection, ctx: WorkspaceContext, document_id: 
 
 @router.get("")
 def list_documents(ctx: Ctx, conn: Conn) -> list[DocumentOut]:
+    """This workspace's documents, plus documents other workspaces explicitly shared into it."""
     rows = conn.execute(
-        f"select {DOCUMENT_COLUMNS} from documents d where d.workspace_id = %s order by d.created_at desc",
-        (ctx.workspace_id,),
+        f"""
+        select {DOCUMENT_COLUMNS},
+            case when d.workspace_id <> %(ws)s
+                 then json_build_object('id', src.id, 'name', src.name) end as shared_from,
+            case when d.workspace_id = %(ws)s then coalesce((
+                select json_agg(json_build_object('id', t.id, 'name', t.name) order by t.name)
+                from document_shares s join workspaces t on t.id = s.target_workspace_id
+                where s.document_id = d.id), '[]') else '[]' end as shared_to
+        from documents d join workspaces src on src.id = d.workspace_id
+        where d.workspace_id = %(ws)s
+           or d.id in (select document_id from document_shares where target_workspace_id = %(ws)s)
+        order by d.created_at desc
+        """,
+        {"ws": ctx.workspace_id},
     ).fetchall()
     return [DocumentOut(**r) for r in rows]
+
+
+class ShareIn(BaseModel):
+    target_workspace_id: UUID
+
+
+@router.post("/{document_id}/shares", status_code=status.HTTP_201_CREATED)
+def share_document(document_id: UUID, body: ShareIn, ctx: Ctx, conn: Conn) -> WorkspaceRef:
+    """Opt-in: make one of THIS workspace's documents readable from another workspace."""
+    _get_document(conn, ctx, document_id)  # must be owned by the active workspace (404 otherwise)
+    if ctx.role != "owner":
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only workspace owners can share documents")
+    if body.target_workspace_id == ctx.workspace_id:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "A document is already visible in its own workspace")
+    # You can only share into a workspace you belong to; anything else looks like it doesn't exist.
+    target = conn.execute(
+        """select w.id, w.name from workspaces w join workspace_members m on m.workspace_id = w.id
+           where w.id = %s and m.user_id = %s""",
+        (body.target_workspace_id, ctx.user.id),
+    ).fetchone()
+    if target is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Workspace not found")
+    conn.execute(
+        """insert into document_shares (document_id, target_workspace_id, shared_by) values (%s, %s, %s)
+           on conflict do nothing""",
+        (document_id, target["id"], ctx.user.id),
+    )
+    return WorkspaceRef(**target)
+
+
+@router.delete("/{document_id}/shares/{target_workspace_id}", status_code=status.HTTP_204_NO_CONTENT)
+def unshare_document(document_id: UUID, target_workspace_id: UUID, ctx: Ctx, conn: Conn) -> None:
+    """Revoke a share, either from the source workspace or from the workspace it was shared into."""
+    if target_workspace_id == ctx.workspace_id:
+        # Receiving side removing it from its own view.
+        where, params = "document_id = %s and target_workspace_id = %s", (document_id, ctx.workspace_id)
+    else:
+        _get_document(conn, ctx, document_id)  # source side: must own the document
+        where, params = "document_id = %s and target_workspace_id = %s", (document_id, target_workspace_id)
+    if conn.execute(f"delete from document_shares where {where} returning 1", params).fetchone() is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Share not found")
 
 
 @router.post("/upload-url")

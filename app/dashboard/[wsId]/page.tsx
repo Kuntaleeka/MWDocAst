@@ -1,10 +1,11 @@
 "use client";
 
-import { Activity, FileText, ListChecks, MessageSquare, type LucideIcon } from "lucide-react";
+import { Activity, BarChart3, FileText, ListChecks, MessageSquare, type LucideIcon } from "lucide-react";
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { ChatPanel } from "@/components/ChatPanel";
 import { DocumentsPanel } from "@/components/DocumentsPanel";
+import { InsightsPanel } from "@/components/InsightsPanel";
 import { SignOutButton } from "@/components/SignOutButton";
 import { TasksPanel } from "@/components/TasksPanel";
 import { ToolLogPanel } from "@/components/ToolLogPanel";
@@ -17,8 +18,9 @@ const TABS: { id: Tab; label: string; icon: LucideIcon; blurb: string }[] = [
   { id: "documents", label: "Documents", icon: FileText, blurb: "Files the assistant can read in this workspace." },
   { id: "tasks", label: "Tasks", icon: ListChecks, blurb: "Tasks the assistant saved when you asked it to." },
   { id: "tool-log", label: "Tool log", icon: Activity, blurb: "Every tool call the model requested, including refused ones." },
+  { id: "insights", label: "Insights", icon: BarChart3, blurb: "Latency, retrieval hit rate, token use and tool outcomes." },
 ];
-type Tab = "chat" | "documents" | "tasks" | "tool-log";
+type Tab = "chat" | "documents" | "tasks" | "tool-log" | "insights";
 
 export default function WorkspaceDashboard() {
   const { wsId } = useParams<{ wsId: string }>();
@@ -111,9 +113,12 @@ export default function WorkspaceDashboard() {
         >
           <div className={cn("mx-auto h-full w-full", tab === "chat" ? "max-w-6xl" : "max-w-4xl")}>
             {tab === "chat" && <ChatPanel key={active.id} workspaceId={active.id} workspaceName={active.name} />}
-            {tab === "documents" && <DocumentsPanel key={active.id} workspaceId={active.id} />}
+            {tab === "documents" && (
+              <DocumentsPanel key={active.id} workspaceId={active.id} workspaces={workspaces} />
+            )}
             {tab === "tasks" && <TasksPanel key={active.id} workspaceId={active.id} />}
             {tab === "tool-log" && <ToolLogPanel key={active.id} workspaceId={active.id} />}
+            {tab === "insights" && <InsightsPanel key={active.id} workspaceId={active.id} />}
           </div>
         </div>
       </main>

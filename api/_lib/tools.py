@@ -31,7 +31,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 from .auth import WorkspaceContext
 from .config import get_settings
 from .embeddings import EmbeddingError
-from .retrieval import RELEVANCE_FLOOR, RetrievedChunk, retrieve
+from .retrieval import RetrievedChunk, retrieve
 
 log = logging.getLogger(__name__)
 
@@ -110,7 +110,7 @@ def _search_documents(ctx: ToolContext, args: SearchDocumentsArgs) -> dict:
         raise ToolError("Document search is unavailable right now") from exc
     out = []
     for h in hits:
-        if h.similarity < RELEVANCE_FLOOR:
+        if not h.relevant:
             continue
         existing = next((i for i, s in enumerate(ctx.sources) if s.chunk_id == h.chunk_id), None)
         if existing is None:

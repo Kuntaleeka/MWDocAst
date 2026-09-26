@@ -102,3 +102,27 @@ def test_thinking_config_matches_model_family():
     assert llm._thinking("gemini-2.5-flash").thinking_budget == 0
     three = llm._thinking("gemini-3.5-flash-lite")
     assert three.thinking_budget is None and three.thinking_level is not None
+
+
+def test_embedding_retry_follows_requested_delay(monkeypatch):
+    from _lib import embeddings
+
+    waits, calls = [], []
+
+    def fake_embed(model, contents, config):
+        calls.append(1)
+        if len(calls) == 1:
+            raise errors.APIError(
+                429,
+                {"error": {"code": 429, "message": "quota", "details": [{"retryDelay": "17s"}]}},
+            )
+        return type("R", (), {"embeddings": [type("E", (), {"values": [1.0, 0.0]})()]})()
+
+    monkeypatch.setattr(embeddings, "_client", lambda: type("C", (), {"models": type("M", (), {"embed_content": staticmethod(fake_embed)})()})())
+    monkeypatch.setattr(embeddings.time, "sleep", waits.append)
+    assert embeddings._embed_batch(["x"], "RETRIEVAL_DOCUMENT") == [[1.0, 0.0]]
+    assert 17 <= waits[0] < 18
+
+    calls.clear()
+    with pytest.raises(embeddings.EmbeddingError):  # a chat query won't wait 17s
+        embeddings.embed_query("x")

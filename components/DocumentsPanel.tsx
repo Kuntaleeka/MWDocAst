@@ -1,8 +1,8 @@
 "use client";
 
-import { CircleCheck, CircleX, FileText, RotateCw, Trash2, UploadCloud } from "lucide-react";
+import { Check, CircleCheck, CircleX, FileText, RotateCw, Share2, Trash2, Unlink, UploadCloud } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { apiFetch, type DocumentInfo } from "@/lib/api";
+import { apiFetch, type DocumentInfo, type Workspace } from "@/lib/api";
 import { createClient } from "@/lib/supabase/client";
 import { cn, EmptyState, ErrorNote, Pill, Spinner, type Tone } from "./ui";
 
@@ -17,12 +17,14 @@ function formatSize(bytes: number) {
   return bytes < 1024 * 1024 ? `${Math.max(1, Math.round(bytes / 1024))} KB` : `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
-export function DocumentsPanel({ workspaceId }: { workspaceId: string }) {
+export function DocumentsPanel({ workspaceId, workspaces }: { workspaceId: string; workspaces: Workspace[] }) {
   const base = `/workspaces/${workspaceId}/documents`;
   const [docs, setDocs] = useState<DocumentInfo[] | null>(null);
   const [uploads, setUploads] = useState<UploadRow[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
+  const [sharing, setSharing] = useState<string | null>(null); // document id with the share menu open
+  const others = workspaces.filter((w) => w.id !== workspaceId);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const refresh = useCallback(() => {
@@ -93,6 +95,21 @@ export function DocumentsPanel({ workspaceId }: { workspaceId: string }) {
   async function retry(id: string) {
     setDocs((d) => d?.map((x) => (x.id === id ? { ...x, status: "processing", error: null } : x)) ?? d);
     await apiFetch(`${base}/${id}/retry`, { method: "POST" }).catch(() => {});
+    refresh();
+  }
+
+  async function toggleShare(doc: DocumentInfo, target: Workspace) {
+    const isShared = doc.shared_to?.some((w) => w.id === target.id);
+    await apiFetch(
+      isShared ? `${base}/${doc.id}/shares/${target.id}` : `${base}/${doc.id}/shares`,
+      isShared ? { method: "DELETE" } : { method: "POST", body: JSON.stringify({ target_workspace_id: target.id }) },
+    ).catch(() => {});
+    refresh();
+  }
+
+  async function unlink(doc: DocumentInfo) {
+    if (!confirm(`Remove "${doc.filename}" from this workspace? It stays in ${doc.shared_from?.name}.`)) return;
+    await apiFetch(`${base}/${doc.id}/shares/${workspaceId}`, { method: "DELETE" }).catch(() => {});
     refresh();
   }
 
@@ -198,24 +215,76 @@ export function DocumentsPanel({ workspaceId }: { workspaceId: string }) {
                     {new Date(d.created_at).toLocaleDateString()}
                   </p>
                 </div>
+                {d.shared_from && <Pill tone="accent">Shared from {d.shared_from.name}</Pill>}
+                {!!d.shared_to?.length && (
+                  <Pill tone="accent" title={d.shared_to.map((w) => w.name).join(", ")}>
+                    <Share2 className="size-3" aria-hidden /> Shared with {d.shared_to.length}
+                  </Pill>
+                )}
                 <Pill tone={STATUS_TONE[d.status]}>
                   {d.status === "processing" && <Spinner className="size-3" />}
                   {d.status}
                 </Pill>
-                <div className="flex items-center">
-                  {d.status === "failed" && (
-                    <button className="btn-icon" onClick={() => retry(d.id)} title="Retry" aria-label={`Retry ${d.filename}`}>
-                      <RotateCw className="size-4" />
+                <div className="relative flex items-center">
+                  {d.shared_from ? (
+                    <button className="btn-icon" onClick={() => unlink(d)} title="Remove from this workspace" aria-label={`Remove ${d.filename} from this workspace`}>
+                      <Unlink className="size-4" />
                     </button>
+                  ) : (
+                    <>
+                      {d.status === "failed" && (
+                        <button className="btn-icon" onClick={() => retry(d.id)} title="Retry" aria-label={`Retry ${d.filename}`}>
+                          <RotateCw className="size-4" />
+                        </button>
+                      )}
+                      {d.status === "ready" && others.length > 0 && (
+                        <button
+                          className="btn-icon"
+                          onClick={() => setSharing(sharing === d.id ? null : d.id)}
+                          aria-expanded={sharing === d.id}
+                          title="Share with another workspace"
+                          aria-label={`Share ${d.filename}`}
+                        >
+                          <Share2 className="size-4" />
+                        </button>
+                      )}
+                      <button
+                        className="btn-icon hover:text-rose-600"
+                        onClick={() => remove(d)}
+                        title="Delete"
+                        aria-label={`Delete ${d.filename}`}
+                      >
+                        <Trash2 className="size-4" />
+                      </button>
+                    </>
                   )}
-                  <button
-                    className="btn-icon hover:text-rose-600"
-                    onClick={() => remove(d)}
-                    title="Delete"
-                    aria-label={`Delete ${d.filename}`}
-                  >
-                    <Trash2 className="size-4" />
-                  </button>
+                  {sharing === d.id && (
+                    <div className="card absolute right-0 top-full z-20 mt-1 w-64 p-1.5 shadow-lg">
+                      <p className="px-2 pb-1 pt-0.5 text-[0.7rem] text-muted">
+                        Read-only access for another workspace. Its chat can then cite this document.
+                      </p>
+                      {others.map((w) => {
+                        const on = d.shared_to?.some((t) => t.id === w.id);
+                        return (
+                          <button
+                            key={w.id}
+                            onClick={() => toggleShare(d, w)}
+                            className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-subtle"
+                          >
+                            <span
+                              className={cn(
+                                "flex size-4 items-center justify-center rounded border",
+                                on ? "border-accent bg-accent text-accent-foreground" : "border-border",
+                              )}
+                            >
+                              {on && <Check className="size-3" strokeWidth={3} />}
+                            </span>
+                            <span className="truncate">{w.name}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
                 {d.error && <p className="w-full pl-12 text-xs text-rose-600">{d.error}</p>}
               </li>

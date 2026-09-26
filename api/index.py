@@ -12,7 +12,7 @@ import psycopg  # noqa: E402
 from fastapi import FastAPI, Request  # noqa: E402
 from fastapi.responses import JSONResponse  # noqa: E402
 
-from _lib import activity, chat, documents, logsafe, retrieval, workspaces  # noqa: E402
+from _lib import activity, chat, documents, insights, logsafe, retrieval, workspaces  # noqa: E402
 
 logsafe.install()
 log = logging.getLogger("api")
@@ -27,6 +27,7 @@ app.include_router(documents.router)
 app.include_router(retrieval.router)
 app.include_router(chat.router)
 app.include_router(activity.router)
+app.include_router(insights.router)
 
 
 @app.middleware("http")

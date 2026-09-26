@@ -43,6 +43,8 @@ export type DocumentInfo = {
   size_bytes: number;
   chunk_count: number;
   created_at: string;
+  shared_from?: { id: string; name: string } | null;
+  shared_to?: { id: string; name: string }[];
 };
 
 export type Citation = {
@@ -52,6 +54,7 @@ export type Citation = {
   filename: string;
   section: string | null;
   snippet: string;
+  source_workspace_id?: string | null;
 };
 
 export type Message = {
@@ -141,3 +144,39 @@ export async function apiStream(
     }
   }
 }
+
+export type DebugHit = {
+  chunk_id: string;
+  filename: string;
+  section: string | null;
+  similarity: number;
+  vector_rank: number | null;
+  keyword_rank: number | null;
+  score: number;
+  used: boolean;
+  preview: string;
+  workspace_name: string | null;
+  access: "own" | "shared" | "deleted" | "VIOLATION";
+};
+
+export type MessageDebug = {
+  workspace_id: string;
+  query: string | null;
+  hit: boolean | null;
+  retrieval_ms: number | null;
+  total_ms: number | null;
+  isolation: { checked: number; violations: number };
+  hits: DebugHit[];
+  llm_calls: { model: string; prompt_tokens: number | null; completion_tokens: number | null; latency_ms: number; error: string | null }[];
+  tool_calls: { name: string; status: string; error: string | null; latency_ms: number }[];
+};
+
+export type Insights = {
+  days: number;
+  answers: { total: number; done: number; failed: number; p50_ms: number | null; p95_ms: number | null };
+  retrieval: { total: number; hits: number; avg_ms: number | null };
+  tokens: { prompt: number; completion: number };
+  models: { model: string; calls: number; errors: number; prompt_tokens: number; completion_tokens: number; avg_ms: number | null }[];
+  tools: { name: string; ok: number; rejected: number; error: number; avg_ms: number | null }[];
+  daily: { day: string; answers: number }[];
+};

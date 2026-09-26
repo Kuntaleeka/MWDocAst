@@ -259,6 +259,49 @@ factual question about that document with a citation.
   built client bundle for the exact secret values and secret-shaped strings, and flags any
   non-`NEXT_PUBLIC_` env var read in frontend code. The result was clean, and a planted fake key was caught.
 
+### Phase 8 notes: stretch goals
+
+- **Hybrid retrieval** (`search_chunks`, migration 0007): top-30 vector candidates and top-30 keyword
+  candidates (`tsvector`, query lexemes OR-ed), fused with Reciprocal Rank Fusion. **The workspace
+  filter is inside both candidate queries** and again in the final join, so neither ranking ever
+  scores another workspace's rows. A keyword-only filter applied afterwards would have leaked through
+  the keyword side.
+  - Relevance rule: vector similarity ≥ 0.6, **or** a top-2 keyword match with similarity ≥ 0.5.
+  - Measured with `scripts/eval_retrieval.py` on the sample docs (21 answerable questions, 6
+    off-topic or wrong-workspace):
+
+    | mode | hit@1 | hit@3 | MRR | right chunk passes relevance rule | off-topic refused |
+    |---|---|---|---|---|---|
+    | vector | 21/21 | 21/21 | 1.00 | 20/21 | 5/6 |
+    | hybrid | 21/21 | 21/21 | 1.00 | 21/21 | 5/6 |
+
+  - **Why it helped:** ranking didn't change, because the corpus is small enough that vector search
+    already puts every right section first. The gain is on exact terms. "What is **Ledgerly**?" (a
+    product name) scores only 0.574 by vector, below the cutoff, so vector-only would have answered
+    "I don't know". Its keyword rank of 1 rescues it.
+  - The one off-topic question that passes the rule in both modes is "When is the deploy freeze?"
+    asked in A. It matches A's *own* Offsite section at 0.637 (dates). That isn't a leak, since B's
+    runbook never appears; the model's own refusal has to catch it.
+- **Opt-in sharing:** a `document_shares(document_id, target_workspace_id)` row makes one document
+  readable (never writable) from one other workspace, through the same `search_chunks` filter.
+  - Only the source workspace's owner can share, and only into a workspace they belong to (404
+    otherwise).
+  - The target can remove the share from its own view but can't delete or reprocess the document.
+    Deleting the source document cascades to its shares.
+  - Tests cover default isolation → share → only that one document visible (never the source's other
+    documents) → revoke.
+- **Retrieval debug** (`GET /messages/{id}/debug`): the workspace, every retrieved chunk with its
+  similarity, vector rank, keyword rank and whether it was used. It also re-checks at read time that
+  each chunk is own or shared-in (`violations` should always be 0), plus model calls with tokens and
+  latency.
+- **Observability** (`GET /insights`): answer p50/p95 (new `messages.completed_at`), retrieval hit
+  rate, tokens in/out per model, model errors, tool ok/rejected/error counts, and answers per day.
+- **Embedding quota:** the free tier is 100 embedding requests per minute. Retries now follow
+  Gemini's requested `retryDelay`: up to 60 s for ingestion and batch jobs, 8 s for a live chat
+  question. Found when the eval script itself hit the limit.
+- **Pending cleanup:** `match_chunks` (0003) is unused after this deploy. Drop it in a follow-up
+  migration once production runs this code (local and production share one database).
+
 ## 7. Frontend (Next.js)
 
 - `/login` — Supabase Auth email/password, plus a throwaway demo account.
