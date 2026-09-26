@@ -9,6 +9,8 @@ shared pgvector table**, and isolation is enforced inside the SQL query itself.
 
 **Demo login (throwaway):** `reviewer@example.com` / `DocAssist-Review-2026`
 
+**Discord server (to see tool posts):** https://discord.gg/KkTTsFezRG
+
 Stack: Next.js 16 · FastAPI on Vercel Python functions · Supabase (Postgres + pgvector, Auth,
 Storage) · Google Gemini (chat, function calling, embeddings) · Discord webhook. Everything runs on
 free tiers with no card.
@@ -53,8 +55,9 @@ Switch workspaces with the dropdown at the top of the sidebar.
 - *"Save a task to review the deploy runbook by Friday"*: a ✓ `save_task` badge appears, and the task
   shows in the **Tasks** tab.
 - *"List my open tasks and post a summary to Discord"*: two tools in sequence (`list_tasks`, then
-  `send_discord_summary`). The post goes to the project owner's Discord channel; you'll see the
-  ✓ badge, and the result in the **Tool log** tab.
+  `send_discord_summary`). You'll see the ✓ badge and the result in the **Tool log** tab. To see
+  the post itself, join the project's Discord server at https://discord.gg/KkTTsFezRG. Posts arrive
+  in the webhook's channel titled **"\<workspace name\> · summary from Doc Assistant"**.
 - **Tool log** shows every call the model requested, including rejected ones, with arguments,
   result and latency.
 
