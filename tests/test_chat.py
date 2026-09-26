@@ -223,3 +223,13 @@ def test_unexpected_error_marks_message_failed_not_pending(ws_with_doc, monkeypa
     monkeypatch.setattr(llm, "stream", broken)
     msg = _chat(uid, ws, "What is the codename?").json()["assistant_message"]
     assert msg["status"] == "failed" and msg["error"].startswith("Something went wrong")
+
+
+def test_system_prompt_carries_todays_date():
+    from datetime import date
+
+    from _lib.prompts import system_prompt
+
+    text = system_prompt(date(2026, 9, 26))
+    assert "Today's date is 2026-09-26 (Saturday, UTC)" in text
+    assert text.startswith("You are a document assistant")

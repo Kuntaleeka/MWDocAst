@@ -5,6 +5,7 @@ tells the model it is data, never instructions.
 """
 
 import re
+from datetime import date, datetime, timezone
 from html import escape
 
 from .retrieval import RetrievedChunk
@@ -31,6 +32,18 @@ example list tasks, then post a summary of them). After tools run, report what a
 including errors, and never claim an action succeeded if the tool returned ok: false. Statements \
 about tasks or actions don't need citations.
 5. Be concise and direct. Use short paragraphs or bullet lists."""
+
+
+def system_prompt(today: date | None = None) -> str:
+    """SYSTEM_PROMPT plus today's date, so relative dates ("by Friday") resolve correctly.
+
+    Without it the model guesses the year and saves tasks that are already overdue.
+    """
+    today = today or datetime.now(timezone.utc).date()
+    return (
+        f"{SYSTEM_PROMPT}\n6. Today's date is {today.isoformat()} ({today:%A}, UTC). Resolve relative "
+        "dates such as \"by Friday\" or \"next month\" against it, and give save_task dates in YYYY-MM-DD."
+    )
 
 
 _CITATION = re.compile(r"\[(S\d+(?:\s*,\s*S\d+)*)\]")

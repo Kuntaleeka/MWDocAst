@@ -29,7 +29,7 @@ from . import limits, llm, tools
 from .auth import WorkspaceContext, workspace_context
 from .db import connect, get_conn
 from .embeddings import EmbeddingError
-from .prompts import I_DONT_KNOW, SYSTEM_PROMPT, extract_citations, strip_citations, user_turn
+from .prompts import I_DONT_KNOW, extract_citations, strip_citations, system_prompt, user_turn
 from .retrieval import RetrievedChunk, retrieve
 
 RETRIEVE_K = 8
@@ -319,7 +319,7 @@ def _answer_events(conn, ctx, conversation_id, message_id, question) -> Iterator
         yield {"type": "status", "stage": "writing"}
         result = None
         try:
-            for item in llm.stream(SYSTEM_PROMPT, contents, tools.declarations(offered)):
+            for item in llm.stream(system_prompt(), contents, tools.declarations(offered)):
                 if isinstance(item, llm.LlmResult):
                     result = item
                 else:
