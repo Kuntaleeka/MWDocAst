@@ -78,6 +78,12 @@ loaded. A question and its answer got the same timestamp, since `now()` is fixed
 And the secret audit reported "clean" while scanning only committed files. Each fix is in the commit
 history.
 
+**Caught by the demo recording:** while reviewing frames of the automated demo video, both saved
+tasks showed a red "Overdue" pill. The model didn't know today's date, so "by Friday" became
+2025-02-14. The system prompt now includes today's date, a live check resolves "by Friday" to the
+correct 2026-10-02, and the final video was re-recorded after the fix. No test had caught it,
+because the fake models in the tests never resolve dates at all.
+
 ## What I'd improve with more time
 
 - **Retrieval:** a re-ranking step, and a larger, messier evaluation corpus. On the 12-section sample

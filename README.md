@@ -11,6 +11,8 @@ shared pgvector table**, and isolation is enforced inside the SQL query itself.
 
 **Discord server (to see tool posts):** https://discord.gg/KkTTsFezRG
 
+**Demo video (3:40, narrated):** [demo/demo-walkthrough.mp4](demo/demo-walkthrough.mp4), a recorded walkthrough of the live app covering every step below.
+
 Stack: Next.js 16 · FastAPI on Vercel Python functions · Supabase (Postgres + pgvector, Auth,
 Storage) · Google Gemini (chat, function calling, embeddings) · Discord webhook. Everything runs on
 free tiers with no card.
