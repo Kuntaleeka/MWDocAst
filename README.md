@@ -26,6 +26,12 @@ The demo account has two preloaded workspaces, built from [sample_docs/](sample_
 
 Switch workspaces with the dropdown at the top of the sidebar.
 
+> The demo account is shared by everyone reviewing. Please don't delete or share the sample documents,
+> so the isolation check stays intact for the next person. To experiment freely, **sign up with any
+> email** (no confirmation needed), create two workspaces, and upload the files from
+> [sample_docs/](sample_docs/) into each. The owner can restore the demo data at any time with
+> `scripts/seed.py`.
+
 ### 1. Isolation
 1. In **Acme HR**, ask *"What is the Q3 offsite codename?"*. It answers **BLUE HERON** with an **S1**
    chip; click the chip to see the source section.

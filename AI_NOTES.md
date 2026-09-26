@@ -15,9 +15,19 @@
   Supabase and Gemini services. For risky behaviour it wrote scratch end-to-end scripts: real storage
   uploads, real embeddings, a real Supabase login through the Next.js proxy.
 - **Workflow:** one phase per branch and commit (scaffold → auth → ingestion → retrieval → chat → tools
-  → streaming). Nothing merged without review.
+  → streaming → hardening → stretch goals → wrap-up). Nothing merged without review.
 
-<!-- TODO(you): add a sentence on *why* you picked this stack, in your own words. -->
+**Why this stack:** Python + Next.js + Supabase is a strong combination for a RAG-based
+document/workspace manager because each technology handles a different part of the system
+efficiently: **Next.js** provides a modern, interactive frontend for managing workspaces, documents,
+uploads and chat; **Python** is ideal for the RAG/AI backend because of its ecosystem for document
+processing, embeddings and LLM APIs; and **Supabase** provides PostgreSQL for structured data,
+**pgvector** for storing and searching embeddings, Storage for uploaded documents, and Authentication
+for users, with Row Level Security as a second wall that keeps the browser out of the tables
+(isolation itself is enforced in the API and inside the SQL search). This means you can build the
+core system without immediately needing separate services for a database, vector database, file
+storage, and authentication, while still having an architecture that can later scale into a more
+enterprise-grade RAG platform.
 
 ## Key decisions and why
 
