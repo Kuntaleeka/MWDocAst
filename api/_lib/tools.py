@@ -10,6 +10,9 @@ Safety model:
 - Intent gate: tools with side effects are only offered when the USER's message asks for that
   kind of action. Retrieved documents can't unlock them, because the gate never looks at documents.
 - Every call, including refused ones, is recorded in tool_calls.
+- Task notices: after each save_task attempt the user asked for, the server (not the model) posts the
+  outcome to Discord and logs it in tool_calls as notify_discord. It's best effort: a failed post
+  never undoes or fails the save, it's just reported.
 """
 
 import json
@@ -36,6 +39,8 @@ from .retrieval import RetrievedChunk, retrieve
 log = logging.getLogger(__name__)
 
 DISCORD_HOURLY_LIMIT = 5
+TASK_NOTICE = "notify_discord"  # logged like a tool, but only the server runs it
+TASK_NOTICE_HOURLY_LIMIT = 30
 _MAX_LOGGED_JSON = 4000
 
 
@@ -81,8 +86,12 @@ class SendDiscordSummaryArgs(_Args):
     @field_validator("summary")
     @classmethod
     def no_mass_mentions(cls, v: str) -> str:
-        # Defence in depth; allowed_mentions already stops pings.
-        return re.sub(r"@(everyone|here)", "@\u200b\\1", v)  # zero-width space
+        return _no_mass_mentions(v)
+
+
+def _no_mass_mentions(text: str) -> str:
+    # Defence in depth; allowed_mentions already stops pings.
+    return re.sub(r"@(everyone|here)", "@\u200b\\1", text)  # zero-width space
 
 
 @dataclass(frozen=True)
@@ -93,6 +102,7 @@ class Tool:
     run: Callable[[ToolContext, Any], dict]
     side_effect: bool
     intent: re.Pattern | None = None  # words in the user's message that show they want this tool
+    notify: bool = False  # post each attempt's outcome to Discord (see _notify_task_outcome)
 
     def declaration(self) -> types.FunctionDeclaration:
         return types.FunctionDeclaration(
@@ -148,9 +158,7 @@ def _list_tasks(ctx: ToolContext, args: ListTasksArgs) -> dict:
 
 
 def _send_discord_summary(ctx: ToolContext, args: SendDiscordSummaryArgs) -> dict:
-    url = get_settings().discord_webhook_url
-    if not url.startswith(("https://discord.com/api/webhooks/", "https://discordapp.com/api/webhooks/")):
-        raise ToolError("Discord is not configured for this app")
+    url = _webhook_url()
 
     # Idempotent per answer, and rate-limited per workspace.
     sent = ctx.conn.execute(
@@ -166,15 +174,79 @@ def _send_discord_summary(ctx: ToolContext, args: SendDiscordSummaryArgs) -> dic
     if sent["last_hour"] >= DISCORD_HOURLY_LIMIT:
         raise ToolRefused(f"Rate limit: at most {DISCORD_HOURLY_LIMIT} Discord posts per workspace per hour")
 
-    name = ctx.conn.execute("select name from workspaces where id = %s", (ctx.ws.workspace_id,)).fetchone()["name"]
-    content = f"**{name}** · summary from Doc Assistant\n{args.summary}"[:2000]
+    content = f"**{_workspace_name(ctx)}** · summary from Doc Assistant\n{args.summary}"[:2000]
+    _post_discord(url, content)
+    return {"sent": True, "characters": len(content)}
+
+
+def _notify_task_outcome(ctx: ToolContext, raw_args: Any, out: dict) -> dict:
+    """Post whether a save_task attempt worked to Discord, and log it. Never raises.
+
+    Idempotent per answer for successes: a retried answer that finds its task already saved
+    doesn't announce it again. Failures are posted each time, since each one really happened.
+    """
+    start = time.monotonic()
+    saved = bool(out.get("ok"))
+    task = out["result"]["task"] if saved else {}
+    title = task.get("title") or (raw_args.get("title") if isinstance(raw_args, dict) else None)
+    title = _no_mass_mentions(str(title or "(untitled)"))[:200]
+    log_args = {"task": title, "saved": saved}
+
+    status, error = "ok", None
+    try:
+        url = _webhook_url()
+        sent = ctx.conn.execute(
+            """select
+                 count(*) filter (where message_id = %s and args->>'task' = %s and (args->>'saved')::boolean)
+                   as this_task,
+                 count(*) filter (where created_at > now() - interval '1 hour') as last_hour
+               from tool_calls
+               where workspace_id = %s and name = %s and status = 'ok'""",
+            (ctx.message_id, title, ctx.ws.workspace_id, TASK_NOTICE),
+        ).fetchone()
+        if saved and sent["this_task"]:
+            return {"status": "ok", "sent": True, "already_sent": True}
+        if sent["last_hour"] >= TASK_NOTICE_HOURLY_LIMIT:
+            raise ToolRefused(f"Rate limit: at most {TASK_NOTICE_HOURLY_LIMIT} task notifications per hour")
+
+        head = f"**{_workspace_name(ctx)}** · "
+        if saved:
+            due = f" (due {task['due_date']})" if task.get("due_date") else ""
+            content = f"{head}✅ Task saved: {title}{due}"
+        else:
+            content = f"{head}❌ Task not saved: {title}\nReason: {out.get('error') or 'unknown error'}"
+        _post_discord(url, content[:2000])
+    except ToolRefused as exc:
+        status, error = "rejected", str(exc)
+    except ToolError as exc:
+        status, error = "error", str(exc)
+    except Exception:
+        log.exception("task notification failed")
+        status, error = "error", "The Discord notification failed unexpectedly"
+
+    _log_call(ctx, TASK_NOTICE, log_args, status, {"sent": True} if status == "ok" else None, error,
+              int((time.monotonic() - start) * 1000))
+    return {"status": status, "sent": True} if status == "ok" else {"status": status, "sent": False, "error": error}
+
+
+def _webhook_url() -> str:
+    url = get_settings().discord_webhook_url
+    if not url.startswith(("https://discord.com/api/webhooks/", "https://discordapp.com/api/webhooks/")):
+        raise ToolError("Discord is not configured for this app")
+    return url
+
+
+def _post_discord(url: str, content: str) -> None:
     try:
         res = httpx.post(url, json={"content": content, "allowed_mentions": {"parse": []}}, timeout=10)
     except httpx.HTTPError as exc:
         raise ToolError("Could not reach Discord") from exc  # never include the URL: it's a secret
     if res.status_code >= 300:
         raise ToolError(f"Discord rejected the message (HTTP {res.status_code})")
-    return {"sent": True, "characters": len(content)}
+
+
+def _workspace_name(ctx: ToolContext) -> str:
+    return ctx.conn.execute("select name from workspaces where id = %s", (ctx.ws.workspace_id,)).fetchone()["name"]
 
 
 def _task_json(row: dict) -> dict:
@@ -204,11 +276,13 @@ REGISTRY: dict[str, Tool] = {
         Tool(
             "save_task",
             "Save a task (to-do) in this workspace. Only when the user explicitly asks to save, add "
-            "or create a task or reminder.",
+            "or create a task or reminder. The team is told on Discord whether it worked; the result's "
+            "discord_notification says whether that post went out.",
             SaveTaskArgs,
             _save_task,
             side_effect=True,
             intent=_TASK_WORDS,
+            notify=True,
         ),
         Tool(
             "list_tasks",
@@ -246,10 +320,21 @@ def declarations(tools: list[Tool]) -> list[types.Tool]:
 
 
 def execute(ctx: ToolContext, name: str, raw_args: Any, offered: list[Tool]) -> dict:
-    """Validate and run one model-requested call. Never raises; always logs."""
+    """Validate and run one model-requested call. Never raises; always logs.
+
+    For tools with notify=True that the user unlocked, the outcome (success or failure, including
+    invalid arguments) is also posted to Discord and reported back under "discord_notification".
+    """
+    tool = REGISTRY.get(name)
+    out = _execute(ctx, tool, name, raw_args, offered)
+    if tool is not None and tool.notify and tool in offered:
+        out["discord_notification"] = _notify_task_outcome(ctx, raw_args, out)
+    return out
+
+
+def _execute(ctx: ToolContext, tool: Tool | None, name: str, raw_args: Any, offered: list[Tool]) -> dict:
     start = time.monotonic()
     args_for_log = raw_args if isinstance(raw_args, dict) else {"_raw": repr(raw_args)[:500]}
-    tool = REGISTRY.get(name)
 
     def finish(status: str, *, result: dict | None = None, error: str | None = None) -> dict:
         _log_call(ctx, name, args_for_log, status, result, error, int((time.monotonic() - start) * 1000))

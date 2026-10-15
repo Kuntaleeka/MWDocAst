@@ -22,6 +22,15 @@ import { cn, Pill, Spinner, type Tone } from "./ui";
 
 const TOOL_TONE: Record<"ok" | "rejected" | "error", Tone> = { ok: "success", rejected: "warning", error: "danger" };
 const TOOL_ICON = { ok: Check, rejected: Ban, error: X } as const;
+// Outcomes the user should see in words, not just as a coloured tool name.
+const TOOL_OUTCOME: Record<string, Record<"ok" | "rejected" | "error", string>> = {
+  save_task: { ok: "Task saved", rejected: "Task not saved", error: "Task not saved" },
+  notify_discord: {
+    ok: "Team notified on Discord",
+    rejected: "Discord notification skipped",
+    error: "Discord notification failed",
+  },
+};
 
 const SUGGESTIONS = [
   "What topics do these documents cover?",
@@ -425,12 +434,20 @@ function ToolBadges({ tools }: { tools?: Message["tools"] }) {
       <Wrench className="size-3.5 text-muted" aria-hidden />
       {tools.map((t, i) => {
         const Icon = TOOL_ICON[t.status];
+        const outcome = TOOL_OUTCOME[t.name]?.[t.status];
         return (
-          <Pill key={i} tone={TOOL_TONE[t.status]} title={t.error ?? undefined} className="font-mono">
-            <Icon className="size-3" aria-hidden /> {t.name}
+          <Pill key={i} tone={TOOL_TONE[t.status]} title={t.error ?? undefined} className={outcome ? undefined : "font-mono"}>
+            <Icon className="size-3" aria-hidden /> {outcome ?? t.name}
           </Pill>
         );
       })}
+      {tools
+        .filter((t) => TOOL_OUTCOME[t.name] && t.status !== "ok" && t.error)
+        .map((t, i) => (
+          <p key={`e${i}`} role="status" className="basis-full text-xs text-rose-700 dark:text-rose-400">
+            {TOOL_OUTCOME[t.name][t.status]}: {t.error}
+          </p>
+        ))}
     </div>
   );
 }

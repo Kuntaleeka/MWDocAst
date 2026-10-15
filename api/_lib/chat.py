@@ -346,6 +346,9 @@ def _answer_events(conn, ctx, conversation_id, message_id, question) -> Iterator
                 yield {"type": "status", "stage": "tool", "name": name}
                 out = tools.execute(tool_ctx, name, call.args, offered)
             yield {"type": "tool", "name": name, "status": _tool_status(out), "error": out.get("error")}
+            notice = out.get("discord_notification")
+            if notice and not notice.get("already_sent"):
+                yield {"type": "tool", "name": tools.TASK_NOTICE, "status": notice["status"], "error": notice.get("error")}
             responses.append(types.Part.from_function_response(name=name or "unknown", response=out))
         contents.append(types.Content(role="user", parts=responses))
 

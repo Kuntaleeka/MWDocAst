@@ -29,17 +29,22 @@ def test_save_task_runs_and_is_logged(ws_with_doc, monkeypatch):
 
     msg = _chat(uid, ws, "Save a task to review the runbook by Oct 1").json()["assistant_message"]
     assert msg["status"] == "done" and msg["content"] == "Saved the task."
-    assert msg["tools"] == [{"name": "save_task", "status": "ok", "error": None}]
+    # Discord isn't configured in tests, so the save works and the notification fails (and says so).
+    assert msg["tools"] == [
+        {"name": "save_task", "status": "ok", "error": None},
+        {"name": "notify_discord", "status": "error", "error": "Discord is not configured for this app"},
+    ]
 
     [task] = _tasks(uid, ws)
     assert task["title"] == "Review the runbook" and task["due_date"] == "2026-10-01"
     assert task["source_message_id"] == msg["id"]
-    [entry] = _log(uid, ws)
+    entry, _ = _log(uid, ws)
     assert entry["status"] == "ok" and entry["result"]["task"]["title"] == "Review the runbook"
 
-    # The model saw the tool result on its second turn.
+    # The model saw the tool result, including the notification outcome, on its second turn.
     response = fake.calls[1][1][-1].parts[0].function_response
     assert response.name == "save_task" and response.response["ok"] is True
+    assert response.response["discord_notification"]["sent"] is False
 
 
 @pytest.mark.parametrize(
@@ -59,8 +64,9 @@ def test_invalid_arguments_are_rejected_and_nothing_runs(ws_with_doc, monkeypatc
     msg = _chat(uid, ws, "Save a task please").json()["assistant_message"]
     assert msg["status"] == "done"
     assert _tasks(uid, ws) == []
-    [entry] = _log(uid, ws)
+    entry, notice = _log(uid, ws)
     assert entry["status"] == "rejected" and problem in entry["error"]
+    assert notice["name"] == "notify_discord" and notice["args"]["saved"] is False
     assert fake.calls[1][1][-1].parts[0].function_response.response["ok"] is False
 
 
@@ -116,7 +122,8 @@ def test_multi_step_list_then_post_to_discord(ws_with_doc, monkeypatch):
     listed = fake.calls[1][1][-1].parts[0].function_response.response
     assert listed["result"]["tasks"][0]["title"] == "Book Lisbon flights"
 
-    [body] = posted
+    task_notice, body = posted
+    assert "Task saved: Book Lisbon flights" in task_notice["content"]
     assert body["allowed_mentions"] == {"parse": []}
     assert "@everyone" not in body["content"]  # neutralised
     assert body["content"].startswith("**ws**")
@@ -164,3 +171,75 @@ def test_search_documents_results_are_citable(ws_with_doc, monkeypatch):
     result = fake.calls[1][1][-1].parts[0].function_response.response["result"]
     assert result["sources"] and all(s["id"].startswith("S") for s in result["sources"])
     assert [c["label"] for c in msg["citations"]] == ["S1"]
+
+
+def _fake_discord(monkeypatch, status_code=204):
+    posted = []
+
+    class Resp:
+        pass
+
+    Resp.status_code = status_code
+    monkeypatch.setattr(tools.httpx, "post", lambda url, json, timeout: posted.append(json) or Resp())
+    monkeypatch.setattr(config.get_settings(), "discord_webhook_url", "https://discord.com/api/webhooks/1/x")
+    return posted
+
+
+def test_saved_task_is_announced_on_discord_once_per_answer(ws_with_doc, monkeypatch):
+    uid, ws, _ = ws_with_doc
+    posted = _fake_discord(monkeypatch)
+    # The answer fails after the task is saved, so the user retries it.
+    use_llm(monkeypatch, FakeLlm([("save_task", {"title": "Pay @everyone", "due_date": "2026-11-01"})],
+                                 llm.LlmError("The AI service is rate-limited right now.")))
+    failed = _chat(uid, ws, "save a task to pay invoices").json()["assistant_message"]
+    assert failed["status"] == "failed"
+    assert [(t["name"], t["status"]) for t in failed["tools"]] == [("save_task", "ok"), ("notify_discord", "ok")]
+
+    [body] = posted
+    assert body["content"] == "**ws** · ✅ Task saved: Pay @\u200beveryone (due 2026-11-01)"
+    assert body["allowed_mentions"] == {"parse": []}
+
+    fake = FakeLlm([("save_task", {"title": "Pay @everyone", "due_date": "2026-11-01"})], "Saved, team notified.")
+    use_llm(monkeypatch, fake)
+    retried = client.post(f"/api/py/workspaces/{ws}/messages/{failed['id']}/retry", headers=_auth(uid)).json()
+    assert retried["status"] == "done"
+    assert len(posted) == 1 and len(_tasks(uid, ws)) == 1  # no second task, no second announcement
+    notice = fake.calls[1][1][-1].parts[0].function_response.response["discord_notification"]
+    assert notice == {"status": "ok", "sent": True, "already_sent": True}
+
+
+def test_failed_save_is_reported_to_user_and_discord(ws_with_doc, monkeypatch):
+    uid, ws, _ = ws_with_doc
+    posted = _fake_discord(monkeypatch)
+    fake = FakeLlm([("save_task", {"title": "Renew contract", "due_date": "someday"})], "I couldn't save it.")
+    use_llm(monkeypatch, fake)
+
+    msg = _chat(uid, ws, "add a task to renew the contract").json()["assistant_message"]
+    assert [(t["name"], t["status"]) for t in msg["tools"]] == [("save_task", "rejected"), ("notify_discord", "ok")]
+    assert _tasks(uid, ws) == []
+    [body] = posted
+    assert body["content"].startswith("**ws** · ❌ Task not saved: Renew contract\nReason: Invalid arguments: due_date")
+    response = fake.calls[1][1][-1].parts[0].function_response.response
+    assert response["ok"] is False and response["discord_notification"]["sent"] is True
+
+
+def test_discord_outage_does_not_undo_the_saved_task(ws_with_doc, monkeypatch):
+    uid, ws, _ = ws_with_doc
+    _fake_discord(monkeypatch, status_code=500)
+    use_llm(monkeypatch, FakeLlm([("save_task", {"title": "Call the vendor"})], "Saved; Discord failed."))
+
+    msg = _chat(uid, ws, "remind me to call the vendor").json()["assistant_message"]
+    assert msg["tools"] == [
+        {"name": "save_task", "status": "ok", "error": None},
+        {"name": "notify_discord", "status": "error", "error": "Discord rejected the message (HTTP 500)"},
+    ]
+    assert [t["title"] for t in _tasks(uid, ws)] == ["Call the vendor"]
+
+
+def test_injected_save_task_is_not_announced(ws_with_doc, monkeypatch):
+    """A save_task the user didn't ask for is refused and never reaches Discord."""
+    uid, ws, _ = ws_with_doc
+    posted = _fake_discord(monkeypatch)
+    use_llm(monkeypatch, FakeLlm([("save_task", {"title": "injected"})], "The codename is BLUE HERON [S1]."))
+    _chat(uid, ws, "What is the codename?")
+    assert posted == [] and [e["name"] for e in _log(uid, ws)] == ["save_task"]

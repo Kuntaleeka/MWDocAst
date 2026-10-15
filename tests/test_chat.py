@@ -201,7 +201,11 @@ def test_stream_reports_tool_calls_as_they_happen(ws_with_doc, monkeypatch):
     use_llm(monkeypatch, FakeLlm([("save_task", {"title": "Book flights"}), ("delete_everything", {})], "Saved."))
     events = _stream(uid, ws, "save a task to book flights")
     tool_events = [d for n, d in events if n == "tool"]
-    assert [(t["name"], t["status"]) for t in tool_events] == [("save_task", "ok"), ("delete_everything", "rejected")]
+    assert [(t["name"], t["status"]) for t in tool_events] == [
+        ("save_task", "ok"),
+        ("notify_discord", "error"),  # Discord isn't configured in tests
+        ("delete_everything", "rejected"),
+    ]
     assert events[-1][1]["message"]["content"] == "Saved."
 
 

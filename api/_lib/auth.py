@@ -1,5 +1,4 @@
 """Supabase JWT verification and workspace membership checks."""
-
 from dataclasses import dataclass
 from functools import lru_cache
 from typing import Annotated

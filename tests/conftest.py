@@ -28,6 +28,13 @@ def fake_jwks(monkeypatch):
     monkeypatch.setattr(auth, "_jwks_client", lambda: _FakeJwks())
 
 
+@pytest.fixture(autouse=True)
+def no_real_discord(monkeypatch):
+    """Saving a task posts to Discord; tests must never reach the real channel from .env.
+    Tests that exercise posting set a fake webhook URL and stub httpx.post themselves."""
+    monkeypatch.setattr(get_settings(), "discord_webhook_url", "")
+
+
 def make_token(user_id: uuid.UUID, *, exp_in: int = 3600, key=_KEY, **overrides) -> str:
     now = int(time.time())
     claims = {
